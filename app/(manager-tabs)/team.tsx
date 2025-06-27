@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Users, Phone, Mail, MapPin, Star, Clock, Plus, X, UserPlus, Calendar, Target } from 'lucide-react-native';
 
 interface TeamMember {
@@ -95,6 +96,35 @@ export default function TeamTab() {
     }
   ]);
 
+  // Charger l'équipe depuis AsyncStorage au démarrage
+  useEffect(() => {
+    loadTeamMembers();
+  }, []);
+
+  // Sauvegarder l'équipe dans AsyncStorage quand elle change
+  useEffect(() => {
+    saveTeamMembers();
+  }, [teamMembers]);
+
+  const loadTeamMembers = async () => {
+    try {
+      const savedTeam = await AsyncStorage.getItem('teamMembers');
+      if (savedTeam) {
+        setTeamMembers(JSON.parse(savedTeam));
+      }
+    } catch (error) {
+      console.error('Error loading team members:', error);
+    }
+  };
+
+  const saveTeamMembers = async () => {
+    try {
+      await AsyncStorage.setItem('teamMembers', JSON.stringify(teamMembers));
+    } catch (error) {
+      console.error('Error saving team members:', error);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'En ligne': return '#10b981';
@@ -159,6 +189,27 @@ export default function TeamTab() {
 
   const sendMessage = (email: string, name: string) => {
     Alert.alert('Message', `Envoi d'un message à ${name} (${email})`);
+  };
+
+  const removeMember = (memberId: number, memberName: string) => {
+    Alert.alert(
+      'Supprimer le membre',
+      `Êtes-vous sûr de vouloir supprimer ${memberName} de l'équipe ?`,
+      [
+        {
+          text: 'Annuler',
+          style: 'cancel',
+        },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: () => {
+            setTeamMembers(teamMembers.filter(member => member.id !== memberId));
+            Alert.alert('Succès', `${memberName} a été supprimé de l'équipe`);
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -270,6 +321,13 @@ export default function TeamTab() {
                 >
                   <Mail color="#10b981" size={18} strokeWidth={2} />
                   <Text style={styles.actionButtonText}>Message</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.deleteButton]}
+                  onPress={() => removeMember(member.id, member.name)}
+                >
+                  <X color="#ef4444" size={18} strokeWidth={2} />
+                  <Text style={[styles.actionButtonText, styles.deleteButtonText]}>Supprimer</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -713,5 +771,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  deleteButton: {
+    backgroundColor: '#f3f4f6',
+  },
+  deleteButtonText: {
+    color: '#ef4444',
   },
 });
