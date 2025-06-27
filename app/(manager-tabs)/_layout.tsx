@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Tabs, router, usePathname } from 'expo-router';
 import { ArrowLeft, LogOut } from 'lucide-react-native';
 
@@ -31,6 +31,42 @@ export default function ManagerTabLayout() {
     }
   };
 
+  // Styles inline pour éviter les warnings
+  const getButtonStyle = () => {
+    const baseStyle = {
+      position: 'absolute' as const,
+      bottom: 30,
+      right: 30,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
+      zIndex: 1000,
+    };
+
+    if (Platform.OS === 'web') {
+      return {
+        ...baseStyle,
+        boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.3)',
+        backgroundColor: isMainPage ? '#ef4444' : '#3b82f6',
+      };
+    } else {
+      return {
+        ...baseStyle,
+        shadowColor: '#000',
+        shadowOffset: {
+          width: 0,
+          height: 4,
+        },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+        backgroundColor: isMainPage ? '#ef4444' : '#3b82f6',
+      };
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Tabs
@@ -49,10 +85,7 @@ export default function ManagerTabLayout() {
       {/* Bottom Right Navigation Button */}
       {isVisible && (
         <TouchableOpacity 
-          style={[
-            styles.bottomButton,
-            isMainPage ? styles.logoutButton : styles.backButton
-          ]}
+          style={getButtonStyle()}
           onPress={handleButtonPress}
         >
           {isMainPage ? (
@@ -70,30 +103,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
-  },
-  bottomButton: {
-    position: 'absolute',
-    bottom: 30,
-    right: 30, // Moved to bottom right
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  backButton: {
-    backgroundColor: '#3b82f6',
-  },
-  logoutButton: {
-    backgroundColor: '#ef4444',
   },
 });

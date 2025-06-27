@@ -10,7 +10,7 @@ import {
   Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ChartBar as BarChart3, Users, TrendingUp, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Target, Bell, X, Package, Timer, LogOut } from 'lucide-react-native';
+import { ChartBar as BarChart3, Users, TrendingUp, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Target, Bell, X, Package, Timer, LogOut, Settings } from 'lucide-react-native';
 import { router } from 'expo-router';
 
 const { width } = Dimensions.get('window');
@@ -287,14 +287,22 @@ export default function DirecteurDashboard() {
             <Text style={styles.title}>Dashboard Agroalimentaire</Text>
             <Text style={styles.subtitle}>Supervision des rayons et équipes</Text>
           </View>
-          <TouchableOpacity style={styles.alertButton}>
-            <Bell color="#ef4444" size={24} strokeWidth={2} />
-            {alerts.length > 0 && (
-              <View style={styles.alertBadge}>
-                <Text style={styles.alertBadgeText}>{alerts.length}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity 
+              style={styles.userManagementButton}
+              onPress={() => router.push('/user-management')}
+            >
+              <Settings color="#3b82f6" size={24} strokeWidth={2} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.alertButton}>
+              <Bell color="#ef4444" size={24} strokeWidth={2} />
+              {alerts.length > 0 && (
+                <View style={styles.alertBadge}>
+                  <Text style={styles.alertBadgeText}>{alerts.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Global Stats */}
@@ -533,6 +541,28 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: '#6b7280',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  userManagementButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 3,
   },
   alertButton: {
     width: 40,

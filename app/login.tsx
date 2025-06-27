@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,25 +10,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Animated,
+  InteractionManager,
+  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { User, Lock, Eye, EyeOff, ArrowLeft } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-
-// Base de données des utilisateurs (en production, ceci serait dans une vraie base de données)
-const users = {
-  managers: [
-    { id: 1, username: 'marie.d', password: 'MD2024!', fullName: 'Marie Dubois', section: 'Fruits & Légumes' },
-    { id: 2, username: 'pierre.m', password: 'PM2024!', fullName: 'Pierre Martin', section: 'Boucherie' },
-    { id: 3, username: 'sophie.l', password: 'SL2024!', fullName: 'Sophie Laurent', section: 'Poissonnerie' },
-    { id: 4, username: 'thomas.d', password: 'TD2024!', fullName: 'Thomas Durand', section: 'Charcuterie' },
-    { id: 5, username: 'julie.m', password: 'JM2024!', fullName: 'Julie Moreau', section: 'Fromage' },
-  ],
-  directors: [
-    { id: 1, username: 'jean.d', password: 'JD2024!', fullName: 'Jean Dupont', role: 'Directeur Général' },
-    { id: 2, username: 'anne.r', password: 'AR2024!', fullName: 'Anne Rousseau', role: 'Directrice Adjointe' },
-  ]
-};
+import { useUserDatabase } from '../hooks/useUserDatabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function LoginScreen() {
   const { userType } = useLocalSearchParams<{ userType: string }>();
@@ -36,82 +26,347 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [dimensions, setDimensions] = useState(Dimensions.get('window'));
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [lastUsername, setLastUsername] = useState('');
+
+  // Obtenir les dimensions de l'écran avec listener pour les changements
+  const { width: screenWidth, height: screenHeight } = dimensions;
+  const isTablet = screenWidth > 768;
+  const isLargeScreen = screenWidth > 1024;
+
+  // Log pour debug
+  React.useEffect(() => {
+    console.log('📱 Dimensions détectées:', {
+      width: screenWidth,
+      height: screenHeight,
+      isTablet,
+      isLargeScreen,
+      platform: Platform.OS
+    });
+  }, [screenWidth, screenHeight, isTablet, isLargeScreen]);
+
+  // Animations pour améliorer la réactivité
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const buttonScaleAnim = React.useRef(new Animated.Value(1)).current;
+  const popupScaleAnim = React.useRef(new Animated.Value(0)).current;
+  const popupOpacityAnim = React.useRef(new Animated.Value(0)).current;
+
+  const { users, loading: dbLoading, authenticateUser } = useUserDatabase();
 
   const isManager = userType === 'manager';
   const isDirector = userType === 'director';
 
-  const handleLogin = () => {
-    console.log('Login button pressed!'); // Debug log
-    console.log('Username:', username, 'Password:', password); // Debug log
+  // Fonction pour mettre à jour le dernier identifiant saisi
+  const handleUsernameChange = useCallback((text: string) => {
+    setUsername(text);
+    // Sauvegarder l'identifiant même s'il est vide (pour garder le dernier saisi)
+    setLastUsername(text);
+    console.log('🔍 Identifiant saisi:', text, '-> lastUsername:', text);
     
+    // Sauvegarder dans AsyncStorage
+    if (text.trim()) {
+      AsyncStorage.setItem('lastUsername', text.trim()).catch(error => {
+        console.log('❌ Erreur lors de la sauvegarde de l\'identifiant:', error);
+      });
+    }
+    
+    if (errorMessage) setErrorMessage('');
+  }, [errorMessage]);
+
+  // Fonctions d'animation pour la popup
+  const showPopup = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(popupOpacityAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+      Animated.timing(popupScaleAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+    ]).start();
+  }, [popupOpacityAnim, popupScaleAnim]);
+
+  const hidePopup = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(popupOpacityAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+      Animated.timing(popupScaleAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+    ]).start(() => {
+      setShowErrorPopup(false);
+    });
+  }, [popupOpacityAnim, popupScaleAnim]);
+
+  // Animation d'entrée fluide
+  React.useEffect(() => {
+    // Animation simplifiée pour améliorer la réactivité
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: Platform.OS !== 'web',
+    }).start();
+  }, []);
+
+  // Écouter les changements de dimensions
+  React.useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setDimensions(window);
+    });
+
+    return () => subscription?.remove();
+  }, []);
+
+  // Charger l'identifiant de la dernière connexion au démarrage
+  React.useEffect(() => {
+    const loadLastUsername = async () => {
+      try {
+        const savedUsername = await AsyncStorage.getItem('lastUsername');
+        if (savedUsername) {
+          setLastUsername(savedUsername);
+          console.log('📱 Identifiant chargé depuis le stockage:', savedUsername);
+        }
+      } catch (error) {
+        console.log('❌ Erreur lors du chargement de l\'identifiant:', error);
+      }
+    };
+    
+    loadLastUsername();
+  }, []);
+
+  // Optimisation des callbacks
+  const handleLogin = useCallback(() => {
     if (!username.trim() || !password.trim()) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+      setErrorMessage('Veuillez remplir tous les champs');
+      setShowErrorPopup(true);
+      showPopup();
       return;
     }
 
     setLoading(true);
-    console.log('Loading set to true'); // Debug log
 
-    // Simulation d'une requête de connexion
-    setTimeout(() => {
-      console.log('Checking credentials...'); // Debug log
-      const userDatabase = isManager ? users.managers : users.directors;
-      const user = userDatabase.find(u => u.username === username.trim() && u.password === password.trim());
+    // Animation du bouton simplifiée
+    Animated.timing(buttonScaleAnim, {
+      toValue: 0.98,
+      duration: 100,
+      useNativeDriver: Platform.OS !== 'web',
+    }).start(() => {
+      Animated.timing(buttonScaleAnim, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: Platform.OS !== 'web',
+      }).start();
+    });
 
-      console.log('User found:', user); // Debug log
+    // Connexion optimisée avec délai réduit
+    InteractionManager.runAfterInteractions(() => {
+      const role = isManager ? 'manager' : 'director';
+      const user = authenticateUser(username.trim(), password.trim(), role);
 
       if (user) {
-        // Connexion réussie
-        console.log('Login successful, navigating...'); // Debug log
+        if (!user.isActive) {
+          setLoading(false);
+          setErrorMessage('Ce compte est désactivé. Contactez l\'administrateur.');
+          setShowErrorPopup(true);
+          showPopup();
+          return;
+        }
+        
+        // Sauvegarder l'identifiant de la connexion réussie
+        setLastUsername(username.trim());
+        console.log('✅ Connexion réussie - Identifiant sauvegardé:', username.trim());
+        
+        // Sauvegarder dans AsyncStorage
+        AsyncStorage.setItem('lastUsername', username.trim()).catch(error => {
+          console.log('❌ Erreur lors de la sauvegarde de l\'identifiant:', error);
+        });
+        
         setLoading(false);
         
-        // Navigation directe sans Alert pour éviter les problèmes
+        // Navigation immédiate
         if (isManager) {
           router.replace('/(manager-tabs)');
         } else {
           router.replace('/directeur');
         }
       } else {
-        // Échec de la connexion
-        console.log('Login failed'); // Debug log
         setLoading(false);
-        Alert.alert('Erreur', 'Identifiant ou mot de passe incorrect');
+        setErrorMessage('Identifiant ou mot de passe incorrect');
+        setShowErrorPopup(true);
+        showPopup();
       }
-    }, 1000);
-  };
+    });
+  }, [username, password, isManager, authenticateUser, buttonScaleAnim, showPopup]);
 
-  const quickLogin = (userExample: any) => {
-    console.log('Quick login for:', userExample.fullName);
+  const quickLogin = useCallback((userExample: any) => {
+    if (!userExample.isActive) {
+      Alert.alert('Erreur', 'Ce compte est désactivé. Contactez l\'administrateur.');
+      return;
+    }
+    
     setUsername(userExample.username);
     setPassword(userExample.password);
     
-    // Auto-login after setting credentials
-    setTimeout(() => {
+    // Connexion rapide optimisée
+    InteractionManager.runAfterInteractions(() => {
       if (isManager) {
         router.replace('/(manager-tabs)');
       } else {
         router.replace('/directeur');
       }
-    }, 500);
-  };
+    });
+  }, [isManager]);
 
-  const getExampleCredentials = () => {
-    if (isManager) {
-      return {
-        username: 'marie.d',
-        password: 'MD2024!',
-        name: 'Marie Dubois'
-      };
-    } else {
-      return {
-        username: 'jean.d',
-        password: 'JD2024!',
-        name: 'Jean Dupont'
-      };
+  // Fonction de connexion rapide avec le dernier identifiant
+  const quickLoginWithLastUsername = useCallback(() => {
+    console.log('🚀 Pré-remplissage avec l\'identifiant:', lastUsername);
+    if (!lastUsername) {
+      setErrorMessage('Aucun identifiant précédent disponible. Veuillez saisir un identifiant d\'abord.');
+      setShowErrorPopup(true);
+      showPopup();
+      return;
     }
-  };
 
-  const example = getExampleCredentials();
+    // Pré-remplir seulement le champ nom d'utilisateur
+    setUsername(lastUsername);
+    
+    // Focus sur le champ mot de passe pour faciliter la saisie
+    // Note: React Native n'a pas de focus automatique, l'utilisateur devra cliquer manuellement
+  }, [lastUsername, showPopup]);
+
+  // Optimisation avec useMemo pour éviter les recalculs
+  const example = useMemo(() => {
+    return {
+      username: 'exemple.user',
+      password: 'motdepasse123',
+      name: 'Utilisateur Exemple'
+    };
+  }, []);
+
+  // Styles dynamiques basés sur la taille de l'écran
+  const dynamicStyles = useMemo(() => ({
+    formContainer: {
+      paddingHorizontal: isLargeScreen ? 200 : isTablet ? 80 : 24,
+      maxWidth: isLargeScreen ? 1000 : isTablet ? 700 : '100%' as any,
+      alignSelf: 'center' as const,
+      width: '100%' as const,
+      marginBottom: 32,
+    },
+    formCard: {
+      backgroundColor: '#ffffff',
+      borderRadius: 24,
+      padding: isLargeScreen ? 60 : isTablet ? 40 : 24,
+      minWidth: isLargeScreen ? 700 : isTablet ? 500 : 'auto' as any,
+      maxWidth: isLargeScreen ? 900 : isTablet ? 600 : '100%' as any,
+      ...Platform.select({
+        web: {
+          boxShadow: '0px 12px 24px rgba(0, 0, 0, 0.15)',
+        },
+        default: {
+          shadowColor: '#000',
+          shadowOffset: {
+            width: 0,
+            height: 12,
+          },
+          shadowOpacity: 0.15,
+          shadowRadius: 24,
+          elevation: 12,
+        },
+      }),
+    },
+    title: {
+      fontSize: isLargeScreen ? 48 : isTablet ? 36 : 28,
+      fontWeight: '700' as const,
+      color: '#1a1a1a',
+      marginBottom: 8,
+    },
+    subtitle: {
+      fontSize: isLargeScreen ? 24 : isTablet ? 20 : 16,
+      color: '#6b7280',
+    },
+    inputLabel: {
+      fontSize: isLargeScreen ? 24 : isTablet ? 20 : 16,
+      fontWeight: '600' as const,
+      color: '#1a1a1a',
+      marginBottom: 12,
+    },
+    input: {
+      flex: 1,
+      fontSize: isLargeScreen ? 24 : isTablet ? 20 : 16,
+      color: '#1a1a1a',
+      marginLeft: 16,
+      marginRight: 12,
+    },
+    inputWrapper: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      backgroundColor: '#f8fafc',
+      borderRadius: 16,
+      paddingHorizontal: 20,
+      paddingVertical: isLargeScreen ? 24 : isTablet ? 20 : 14,
+      borderWidth: 2,
+      borderColor: '#e5e7eb',
+      minHeight: isLargeScreen ? 80 : isTablet ? 70 : 52,
+    },
+    eyeButton: {
+      padding: isLargeScreen ? 20 : isTablet ? 16 : 8,
+      marginLeft: 8,
+    },
+    loginButton: {
+      borderRadius: 16,
+      padding: isLargeScreen ? 32 : isTablet ? 24 : 16,
+      alignItems: 'center' as const,
+      marginBottom: 16,
+      marginTop: 8,
+      minHeight: isLargeScreen ? 80 : isTablet ? 70 : 52,
+      justifyContent: 'center' as const,
+      ...Platform.select({
+        web: {
+          boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
+        },
+        default: {
+          shadowColor: '#000',
+          shadowOffset: {
+            width: 0,
+            height: 4,
+          },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 8,
+        },
+      }),
+    },
+    loginButtonText: {
+      fontSize: isLargeScreen ? 24 : isTablet ? 20 : 16,
+      fontWeight: '600' as const,
+      color: '#ffffff',
+    },
+  }), [isLargeScreen, isTablet]);
+
+  const handlePasswordChange = useCallback((text: string) => {
+    setPassword(text);
+    if (errorMessage) setErrorMessage('');
+  }, [errorMessage]);
+
+  if (dbLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Chargement de la base de données...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -124,29 +379,45 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          removeClippedSubviews={true}
         >
           {/* Header */}
-          <View style={styles.header}>
+          <Animated.View 
+            style={[
+              styles.header,
+              {
+                opacity: fadeAnim
+              }
+            ]}
+          >
             <TouchableOpacity 
               style={styles.backButton}
               onPress={() => router.back()}
+              activeOpacity={0.7}
             >
               <ArrowLeft color="#6b7280" size={24} strokeWidth={2} />
             </TouchableOpacity>
             
             <View style={styles.headerContent}>
-              <Text style={styles.title}>Connexion</Text>
-              <Text style={styles.subtitle}>
+              <Text style={dynamicStyles.title}>Connexion</Text>
+              <Text style={dynamicStyles.subtitle}>
                 {isManager ? 'Espace Manager' : 'Espace Directeur'}
               </Text>
             </View>
-          </View>
+          </Animated.View>
 
           {/* Login Form */}
-          <View style={styles.formContainer}>
+          <Animated.View 
+            style={[
+              dynamicStyles.formContainer,
+              {
+                opacity: fadeAnim
+              }
+            ]}
+          >
             <LinearGradient
               colors={['#ffffff', '#f8f9fa']}
-              style={styles.formCard}
+              style={dynamicStyles.formCard}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
             >
@@ -163,17 +434,19 @@ export default function LoginScreen() {
 
               {/* Username Input */}
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Identifiant</Text>
-                <View style={styles.inputWrapper}>
+                <Text style={dynamicStyles.inputLabel}>Identifiant</Text>
+                <View style={dynamicStyles.inputWrapper}>
                   <User color="#6b7280" size={20} strokeWidth={2} />
                   <TextInput
-                    style={styles.input}
+                    style={dynamicStyles.input}
                     value={username}
-                    onChangeText={setUsername}
+                    onChangeText={handleUsernameChange}
                     placeholder="prenom.n"
                     placeholderTextColor="#9ca3af"
                     autoCapitalize="none"
                     autoCorrect={false}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
                   />
                 </View>
                 <Text style={styles.inputHint}>
@@ -183,22 +456,25 @@ export default function LoginScreen() {
 
               {/* Password Input */}
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Mot de passe</Text>
-                <View style={styles.inputWrapper}>
+                <Text style={dynamicStyles.inputLabel}>Mot de passe</Text>
+                <View style={dynamicStyles.inputWrapper}>
                   <Lock color="#6b7280" size={20} strokeWidth={2} />
                   <TextInput
-                    style={styles.input}
+                    style={dynamicStyles.input}
                     value={password}
-                    onChangeText={setPassword}
+                    onChangeText={handlePasswordChange}
                     placeholder="Mot de passe"
                     placeholderTextColor="#9ca3af"
                     secureTextEntry={!showPassword}
                     autoCapitalize="none"
                     autoCorrect={false}
+                    returnKeyType="done"
+                    onSubmitEditing={handleLogin}
                   />
                   <TouchableOpacity
-                    style={styles.eyeButton}
+                    style={dynamicStyles.eyeButton}
                     onPress={() => setShowPassword(!showPassword)}
+                    activeOpacity={0.7}
                   >
                     {showPassword ? (
                       <EyeOff color="#6b7280" size={20} strokeWidth={2} />
@@ -226,40 +502,34 @@ export default function LoginScreen() {
                     <Text style={styles.exampleLabel}>Mot de passe:</Text> {example.password}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.fillExampleButton}
-                  onPress={() => {
-                    setUsername(example.username);
-                    setPassword(example.password);
-                  }}
-                >
-                  <Text style={styles.fillExampleText}>Remplir automatiquement</Text>
-                </TouchableOpacity>
               </View>
 
               {/* Login Button */}
-              <TouchableOpacity
-                style={[
-                  styles.loginButton,
-                  { backgroundColor: isManager ? '#3b82f6' : '#10b981' },
-                  loading && styles.loginButtonDisabled
-                ]}
-                onPress={handleLogin}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.loginButtonText}>
-                  {loading ? 'Connexion...' : 'Se connecter'}
-                </Text>
-              </TouchableOpacity>
+              <Animated.View style={{ transform: [{ scale: buttonScaleAnim }] }}>
+                <TouchableOpacity
+                  style={[
+                    dynamicStyles.loginButton,
+                    { backgroundColor: isManager ? '#3b82f6' : '#10b981' },
+                    loading && styles.loginButtonDisabled
+                  ]}
+                  onPress={handleLogin}
+                  disabled={loading}
+                  activeOpacity={0.8}
+                >
+                  <Text style={dynamicStyles.loginButtonText}>
+                    {loading ? 'Connexion...' : 'Se connecter'}
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
 
               {/* Quick Login Button */}
               <TouchableOpacity
                 style={styles.quickLoginButton}
-                onPress={() => quickLogin(isManager ? users.managers[0] : users.directors[0])}
+                onPress={quickLoginWithLastUsername}
+                activeOpacity={0.8}
               >
                 <Text style={styles.quickLoginText}>
-                  🚀 Connexion rapide ({example.name})
+                  🔄 Pré-remplir identifiant {lastUsername ? `(${lastUsername})` : '(Aucun identifiant)'}
                 </Text>
               </TouchableOpacity>
 
@@ -270,35 +540,44 @@ export default function LoginScreen() {
                 </Text>
               </View>
             </LinearGradient>
-          </View>
-
-          {/* Available Users List */}
-          <View style={styles.usersListContainer}>
-            <Text style={styles.usersListTitle}>
-              Utilisateurs disponibles ({isManager ? 'Managers' : 'Directeurs'}):
-            </Text>
-            <View style={styles.usersList}>
-              {(isManager ? users.managers : users.directors).map((user, index) => (
-                <TouchableOpacity
-                  key={user.id}
-                  style={[
-                    styles.userItem,
-                    index === (isManager ? users.managers : users.directors).length - 1 && styles.lastUserItem
-                  ]}
-                  onPress={() => quickLogin(user)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.userItemContent}>
-                    <Text style={styles.userItemName}>{user.fullName}</Text>
-                    <Text style={styles.userItemUsername}>({user.username})</Text>
-                  </View>
-                  <Text style={styles.tapHint}>Appuyer pour se connecter</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Error Popup */}
+      {showErrorPopup && (
+        <Animated.View 
+          style={[
+            styles.popupOverlay,
+            {
+              opacity: popupOpacityAnim
+            }
+          ]}
+        >
+          <Animated.View 
+            style={[
+              styles.popupContainer,
+              {
+                transform: [{ scale: popupScaleAnim }]
+              }
+            ]}
+          >
+            <View style={styles.popupHeader}>
+              <Text style={styles.popupTitle}>⚠️ Erreur</Text>
+            </View>
+            <View style={styles.popupContent}>
+              <Text style={styles.popupMessage}>{errorMessage}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.popupButton}
+              onPress={hidePopup}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.popupButtonText}>OK</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -306,7 +585,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#f8fafc',
   },
   keyboardView: {
     flex: 1,
@@ -316,251 +595,182 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 32,
+    paddingBottom: Platform.OS === 'web' ? 40 : 20,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 24,
+    paddingHorizontal: Platform.OS === 'web' ? 40 : 24,
+    paddingTop: Platform.OS === 'web' ? 32 : 16,
+    paddingBottom: Platform.OS === 'web' ? 24 : 16,
+    marginBottom: Platform.OS === 'web' ? 16 : 8,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    padding: Platform.OS === 'web' ? 16 : 8,
+    marginRight: Platform.OS === 'web' ? 20 : 12,
+    borderRadius: Platform.OS === 'web' ? 12 : 8,
     backgroundColor: '#ffffff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 3,
+    ...Platform.select({
+      web: {
+        boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
+      },
+      default: {
+        shadowColor: '#000',
+        shadowOffset: {
+          width: 0,
+          height: 2,
+        },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 4,
+      },
+    }),
   },
   headerContent: {
     flex: 1,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 4,
+  inputContainer: {
+    marginBottom: Platform.OS === 'web' ? 32 : 24,
   },
-  subtitle: {
-    fontSize: 16,
+  inputHint: {
+    fontSize: Platform.OS === 'web' ? 16 : 12,
     color: '#6b7280',
-  },
-  formContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 24,
-  },
-  formCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 8,
+    marginTop: Platform.OS === 'web' ? 12 : 8,
+    fontStyle: 'italic',
   },
   userTypeIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    paddingVertical: Platform.OS === 'web' ? 20 : 12,
+    paddingHorizontal: Platform.OS === 'web' ? 24 : 16,
+    borderRadius: Platform.OS === 'web' ? 16 : 12,
+    marginBottom: Platform.OS === 'web' ? 32 : 24,
   },
   userTypeText: {
-    fontSize: 18,
+    fontSize: Platform.OS === 'web' ? 20 : 16,
     fontWeight: '600',
     color: '#ffffff',
-    marginLeft: 8,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginBottom: 8,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    minHeight: 52,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1a1a1a',
-    marginLeft: 12,
-    marginRight: 8,
-  },
-  eyeButton: {
-    padding: 8,
-    marginLeft: 4,
-  },
-  inputHint: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginTop: 6,
-    fontStyle: 'italic',
-    lineHeight: 16,
+    marginLeft: Platform.OS === 'web' ? 12 : 8,
   },
   exampleContainer: {
     backgroundColor: '#eff6ff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    marginTop: 4,
+    borderRadius: Platform.OS === 'web' ? 16 : 12,
+    padding: Platform.OS === 'web' ? 24 : 16,
+    marginBottom: Platform.OS === 'web' ? 32 : 20,
+    marginTop: Platform.OS === 'web' ? 12 : 4,
   },
   exampleTitle: {
-    fontSize: 14,
+    fontSize: Platform.OS === 'web' ? 18 : 14,
     fontWeight: '600',
     color: '#1a1a1a',
-    marginBottom: 12,
+    marginBottom: Platform.OS === 'web' ? 16 : 12,
   },
   exampleCredentials: {
-    marginBottom: 12,
+    marginBottom: Platform.OS === 'web' ? 16 : 12,
   },
   exampleText: {
-    fontSize: 13,
+    fontSize: Platform.OS === 'web' ? 16 : 13,
     color: '#374151',
-    marginBottom: 4,
-    lineHeight: 18,
+    marginBottom: Platform.OS === 'web' ? 6 : 4,
+    lineHeight: Platform.OS === 'web' ? 24 : 18,
   },
   exampleLabel: {
     fontWeight: '600',
   },
-  fillExampleButton: {
-    backgroundColor: '#3b82f6',
-    borderRadius: 8,
-    padding: 10,
-    alignItems: 'center',
-  },
-  fillExampleText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#ffffff',
-  },
-  loginButton: {
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 12,
-    marginTop: 4,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
-    minHeight: 52,
-    justifyContent: 'center',
+  exampleNote: {
+    fontSize: Platform.OS === 'web' ? 16 : 12,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginTop: Platform.OS === 'web' ? 12 : 8,
   },
   loginButtonDisabled: {
     opacity: 0.6,
   },
-  loginButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ffffff',
-  },
   quickLoginButton: {
     backgroundColor: '#f0fdf4',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: Platform.OS === 'web' ? 16 : 12,
+    padding: Platform.OS === 'web' ? 24 : 12,
     alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
+    marginBottom: Platform.OS === 'web' ? 24 : 16,
+    borderWidth: 2,
     borderColor: '#10b981',
+    minHeight: Platform.OS === 'web' ? 64 : 44,
   },
   quickLoginText: {
-    fontSize: 14,
+    fontSize: Platform.OS === 'web' ? 20 : 14,
     fontWeight: '600',
     color: '#10b981',
   },
   helpContainer: {
     alignItems: 'center',
-    paddingTop: 8,
+    paddingTop: Platform.OS === 'web' ? 16 : 8,
   },
   helpText: {
-    fontSize: 12,
+    fontSize: Platform.OS === 'web' ? 16 : 12,
     color: '#6b7280',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: Platform.OS === 'web' ? 24 : 18,
   },
-  usersListContainer: {
-    paddingHorizontal: 24,
-    marginTop: 8,
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  usersListTitle: {
-    fontSize: 14,
+  loadingText: {
+    fontSize: Platform.OS === 'web' ? 20 : 16,
     fontWeight: '600',
     color: '#1a1a1a',
-    marginBottom: 12,
   },
-  usersList: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 3,
+  infoText: {
+    fontSize: Platform.OS === 'web' ? 16 : 12,
+    fontWeight: '600',
+    color: '#10b981',
   },
-  userItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  popupOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-    borderRadius: 8,
   },
-  lastUserItem: {
-    borderBottomWidth: 0,
+  popupContainer: {
+    backgroundColor: '#ffffff',
+    padding: 20,
+    borderRadius: 12,
+    maxWidth: '80%',
+    width: '100%',
   },
-  userItemContent: {
-    flex: 1,
+  popupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
-  userItemName: {
-    fontSize: 14,
-    fontWeight: '500',
+  popupTitle: {
+    fontSize: 18,
+    fontWeight: '600',
     color: '#1a1a1a',
-    marginBottom: 2,
   },
-  userItemUsername: {
-    fontSize: 12,
+  popupContent: {
+    marginBottom: 16,
+  },
+  popupMessage: {
+    fontSize: 16,
     color: '#6b7280',
   },
-  tapHint: {
-    fontSize: 10,
-    color: '#3b82f6',
-    fontWeight: '500',
+  popupButton: {
+    backgroundColor: '#10b981',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  popupButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
   },
 });
