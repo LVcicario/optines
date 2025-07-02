@@ -12,7 +12,8 @@ import {
   Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Users, Phone, Mail, MapPin, Star, Clock, Plus, X, UserPlus, Calendar, Target } from 'lucide-react-native';
+import { Users, Phone, Mail, MapPin, Star, Clock, Plus, X, UserPlus, Calendar, Target, Edit, ChevronDown } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 
 interface TeamMember {
   id: number;
@@ -32,10 +33,35 @@ interface TeamMember {
 export default function TeamTab() {
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [showEditMemberModal, setShowEditMemberModal] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberRole, setNewMemberRole] = useState('');
   const [meetingTitle, setMeetingTitle] = useState('');
   const [meetingTime, setMeetingTime] = useState('');
+  
+  // États pour la modification d'un membre
+  const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editRole, setEditRole] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editShift, setEditShift] = useState('');
+  const [editAvatar, setEditAvatar] = useState('');
+
+  // États pour le sélecteur d'horaires
+  const [showShiftPicker, setShowShiftPicker] = useState(false);
+  const [shiftPresets, setShiftPresets] = useState([
+    'Matin (05:00-13:00)',
+    'Après-midi (13:00-21:00)',
+    'Soir (21:00-05:00)'
+  ]);
+  const [showPresetModal, setShowPresetModal] = useState(false);
+  const [newPreset, setNewPreset] = useState('');
+
+  // États pour la confirmation de suppression
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [memberToDelete, setMemberToDelete] = useState<{id: number, name: string} | null>(null);
 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([
     {
@@ -106,11 +132,103 @@ export default function TeamTab() {
     saveTeamMembers();
   }, [teamMembers]);
 
+  // Debug: Monitor delete confirmation modal state
+  useEffect(() => {
+    console.log('État du modal de suppression changé:', showDeleteConfirmModal);
+    console.log('Membre à supprimer:', memberToDelete);
+  }, [showDeleteConfirmModal, memberToDelete]);
+
+  // Debug: Monitor team members state
+  useEffect(() => {
+    console.log('Team members state updated:', teamMembers);
+    console.log('Team members IDs:', teamMembers.map(m => m.id));
+  }, [teamMembers]);
+
   const loadTeamMembers = async () => {
     try {
       const savedTeam = await AsyncStorage.getItem('teamMembers');
       if (savedTeam) {
-        setTeamMembers(JSON.parse(savedTeam));
+        const parsedTeam = JSON.parse(savedTeam);
+        console.log('Team members loaded from storage:', parsedTeam);
+        
+        // Filter out any members with null or invalid IDs
+        const validTeam = parsedTeam.filter((member: TeamMember) => {
+          if (member.id === null || member.id === undefined || isNaN(member.id)) {
+            console.warn('Found member with invalid ID:', member);
+            return false;
+          }
+          return true;
+        });
+        
+        if (validTeam.length !== parsedTeam.length) {
+          console.log(`Filtered out ${parsedTeam.length - validTeam.length} members with invalid IDs`);
+          // If we found invalid data, clear the storage and use default data
+          if (validTeam.length === 0) {
+            console.log('No valid members found, resetting to default data');
+            await AsyncStorage.removeItem('teamMembers');
+            setTeamMembers([
+              {
+                id: 1,
+                name: 'Marie Dubois',
+                role: 'Responsable rayon',
+                status: 'En ligne',
+                rating: 4.8,
+                location: 'Fruits & Légumes',
+                phone: '+33 6 12 34 56 78',
+                email: 'marie.dubois@supermarche.com',
+                avatar: 'https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop',
+                shift: 'Matin (05:00-13:00)',
+                performance: 92,
+                tasksCompleted: 28
+              },
+              {
+                id: 2,
+                name: 'Pierre Martin',
+                role: 'Employé polyvalent',
+                status: 'Occupé',
+                rating: 4.6,
+                location: 'Mise en rayon',
+                phone: '+33 6 23 45 67 89',
+                email: 'pierre.martin@supermarche.com',
+                avatar: 'https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop',
+                shift: 'Après-midi (13:00-21:00)',
+                performance: 87,
+                tasksCompleted: 24
+              },
+              {
+                id: 3,
+                name: 'Sophie Laurent',
+                role: 'Spécialiste qualité',
+                status: 'En ligne',
+                rating: 4.9,
+                location: 'Contrôle qualité',
+                phone: '+33 6 34 56 78 90',
+                email: 'sophie.laurent@supermarche.com',
+                avatar: 'https://images.pexels.com/photos/1239291/pexels-photo-1239291.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop',
+                shift: 'Matin (05:00-13:00)',
+                performance: 95,
+                tasksCompleted: 31
+              },
+              {
+                id: 4,
+                name: 'Thomas Durand',
+                role: 'Manutentionnaire',
+                status: 'En pause',
+                rating: 4.4,
+                location: 'Réserve',
+                phone: '+33 6 45 67 89 01',
+                email: 'thomas.durand@supermarche.com',
+                avatar: 'https://images.pexels.com/photos/1681010/pexels-photo-1681010.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop',
+                shift: 'Nuit (21:00-05:00)',
+                performance: 78,
+                tasksCompleted: 19
+              }
+            ]);
+            return;
+          }
+        }
+        
+        setTeamMembers(validTeam);
       }
     } catch (error) {
       console.error('Error loading team members:', error);
@@ -148,8 +266,11 @@ export default function TeamTab() {
       return;
     }
 
+    // Fix the ID generation to avoid -Infinity when array is empty
+    const newId = teamMembers.length > 0 ? Math.max(...teamMembers.map(m => m.id)) + 1 : 1;
+
     const newMember: TeamMember = {
-      id: Math.max(...teamMembers.map(m => m.id)) + 1,
+      id: newId,
       name: newMemberName,
       role: newMemberRole,
       status: 'Hors ligne',
@@ -168,6 +289,45 @@ export default function TeamTab() {
     setNewMemberRole('');
     setShowAddMemberModal(false);
     Alert.alert('Succès', 'Nouveau membre ajouté à l\'équipe');
+  };
+
+  const openEditModal = (member: TeamMember) => {
+    setEditingMember(member);
+    setEditName(member.name);
+    setEditRole(member.role);
+    setEditPhone(member.phone);
+    setEditEmail(member.email);
+    setEditLocation(member.location);
+    setEditShift(member.shift);
+    setEditAvatar(member.avatar);
+    setShowEditMemberModal(true);
+  };
+
+  const saveMemberChanges = () => {
+    if (!editingMember || !editName.trim() || !editRole.trim()) {
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+
+    const updatedMembers = teamMembers.map(member => 
+      member.id === editingMember.id 
+        ? {
+            ...member,
+            name: editName,
+            role: editRole,
+            phone: editPhone,
+            email: editEmail,
+            location: editLocation,
+            shift: editShift,
+            avatar: editAvatar
+          }
+        : member
+    );
+
+    setTeamMembers(updatedMembers);
+    setShowEditMemberModal(false);
+    setEditingMember(null);
+    Alert.alert('Succès', 'Informations du membre mises à jour');
   };
 
   const scheduleMeeting = () => {
@@ -192,24 +352,75 @@ export default function TeamTab() {
   };
 
   const removeMember = (memberId: number, memberName: string) => {
-    Alert.alert(
-      'Supprimer le membre',
-      `Êtes-vous sûr de vouloir supprimer ${memberName} de l'équipe ?`,
-      [
-        {
-          text: 'Annuler',
-          style: 'cancel',
-        },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: () => {
-            setTeamMembers(teamMembers.filter(member => member.id !== memberId));
-            Alert.alert('Succès', `${memberName} a été supprimé de l'équipe`);
-          },
-        },
-      ]
-    );
+    console.log('=== DÉBUT SUPPRESSION ===');
+    console.log('ID à supprimer:', memberId);
+    console.log('Nom à supprimer:', memberName);
+    console.log('État actuel du modal:', showDeleteConfirmModal);
+    
+    // Stocker les informations du membre à supprimer
+    setMemberToDelete({ id: memberId, name: memberName });
+    
+    // Afficher le modal de confirmation
+    setShowDeleteConfirmModal(true);
+    
+    console.log('Modal de confirmation activé');
+    console.log('=== FIN SUPPRESSION ===');
+  };
+
+  const confirmDelete = () => {
+    console.log('=== DÉBUT CONFIRMATION ===');
+    console.log('memberToDelete:', memberToDelete);
+    
+    if (!memberToDelete) {
+      console.log('Aucun membre à supprimer');
+      return;
+    }
+    
+    console.log('Suppression confirmée pour:', memberToDelete.id);
+    const updatedMembers = teamMembers.filter(member => member.id !== memberToDelete.id);
+    console.log('Membres après suppression:', updatedMembers.length);
+    
+    setTeamMembers(updatedMembers);
+    
+    // Sauvegarder immédiatement
+    AsyncStorage.setItem('teamMembers', JSON.stringify(updatedMembers))
+      .then(() => {
+        console.log('Membre supprimé et sauvegardé');
+        Alert.alert('Succès', `${memberToDelete.name} a été supprimé de l'équipe`);
+      })
+      .catch(error => {
+        console.error('Erreur lors de la sauvegarde:', error);
+        Alert.alert('Erreur', 'Erreur lors de la sauvegarde');
+      });
+    
+    // Fermer le modal
+    setShowDeleteConfirmModal(false);
+    setMemberToDelete(null);
+    
+    console.log('=== FIN CONFIRMATION ===');
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirmModal(false);
+    setMemberToDelete(null);
+  };
+
+  // Fonction pour choisir une image
+  const pickImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setEditAvatar(result.assets[0].uri);
+    }
+  };
+
+  const selectShift = (shift: string) => {
+    setEditShift(shift);
+    setShowShiftPicker(false);
   };
 
   return (
@@ -244,11 +455,11 @@ export default function TeamTab() {
             <Text style={styles.statLabel}>Actifs</Text>
           </View>
           <View style={styles.statCard}>
-            <Star color="#8b5cf6" size={20} strokeWidth={2} />
+            <Target color="#8b5cf6" size={20} strokeWidth={2} />
             <Text style={styles.statValue}>
-              {(teamMembers.reduce((sum, m) => sum + m.rating, 0) / teamMembers.length).toFixed(1)}
+              {teamMembers.reduce((sum, m) => sum + m.tasksCompleted, 0)}
             </Text>
-            <Text style={styles.statLabel}>Note moy.</Text>
+            <Text style={styles.statLabel}>Tâches</Text>
           </View>
         </View>
 
@@ -264,7 +475,9 @@ export default function TeamTab() {
             </TouchableOpacity>
           </View>
           
-          {teamMembers.map((member) => (
+          {teamMembers
+            .filter(member => member.id !== null && member.id !== undefined && !isNaN(member.id))
+            .map((member) => (
             <View key={member.id} style={styles.memberCard}>
               <View style={styles.memberHeader}>
                 <Image source={{ uri: member.avatar }} style={styles.avatar} />
@@ -284,10 +497,6 @@ export default function TeamTab() {
                 <View style={styles.performanceContainer}>
                   <View style={[styles.performanceBadge, { backgroundColor: getPerformanceColor(member.performance) }]}>
                     <Text style={styles.performanceText}>{member.performance}%</Text>
-                  </View>
-                  <View style={styles.ratingContainer}>
-                    <Star color="#f59e0b" size={14} strokeWidth={2} fill="#f59e0b" />
-                    <Text style={styles.rating}>{member.rating}</Text>
                   </View>
                 </View>
               </View>
@@ -323,8 +532,19 @@ export default function TeamTab() {
                   <Text style={styles.actionButtonText}>Message</Text>
                 </TouchableOpacity>
                 <TouchableOpacity 
+                  style={[styles.actionButton, styles.editButton]}
+                  onPress={() => openEditModal(member)}
+                >
+                  <Edit color="#f59e0b" size={18} strokeWidth={2} />
+                  <Text style={[styles.actionButtonText, styles.editButtonText]}>Modifier</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
                   style={[styles.actionButton, styles.deleteButton]}
-                  onPress={() => removeMember(member.id, member.name)}
+                  onPress={() => {
+                    console.log('Bouton supprimer cliqué pour:', member.name);
+                    removeMember(member.id, member.name);
+                  }}
+                  activeOpacity={0.7}
                 >
                   <X color="#ef4444" size={18} strokeWidth={2} />
                   <Text style={[styles.actionButtonText, styles.deleteButtonText]}>Supprimer</Text>
@@ -371,7 +591,7 @@ export default function TeamTab() {
       <Modal
         visible={showAddMemberModal}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowAddMemberModal(false)}
       >
         <View style={styles.modalOverlay}>
@@ -423,11 +643,249 @@ export default function TeamTab() {
         </View>
       </Modal>
 
+      {/* Edit Member Modal */}
+      <Modal
+        visible={showEditMemberModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowEditMemberModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <ScrollView style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Modifier le membre</Text>
+              <TouchableOpacity onPress={() => setShowEditMemberModal(false)}>
+                <X color="#6b7280" size={24} strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Nom complet *</Text>
+              <TextInput
+                style={styles.input}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Nom complet"
+                placeholderTextColor="#9ca3af"
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Poste *</Text>
+              <TextInput
+                style={styles.input}
+                value={editRole}
+                onChangeText={setEditRole}
+                placeholder="Poste"
+                placeholderTextColor="#9ca3af"
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Numéro de téléphone</Text>
+              <TextInput
+                style={styles.input}
+                value={editPhone}
+                onChangeText={setEditPhone}
+                placeholder="+33 6 XX XX XX XX"
+                placeholderTextColor="#9ca3af"
+                keyboardType="phone-pad"
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Email</Text>
+              <TextInput
+                style={styles.input}
+                value={editEmail}
+                onChangeText={setEditEmail}
+                placeholder="email@exemple.com"
+                placeholderTextColor="#9ca3af"
+                keyboardType="email-address"
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Localisation</Text>
+              <TextInput
+                style={styles.input}
+                value={editLocation}
+                onChangeText={setEditLocation}
+                placeholder="Ex: Fruits & Légumes"
+                placeholderTextColor="#9ca3af"
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Horaire de travail</Text>
+              <TouchableOpacity 
+                style={styles.shiftSelector}
+                onPress={() => setShowShiftPicker(true)}
+              >
+                <Text style={[
+                  styles.shiftSelectorText,
+                  !editShift && styles.shiftSelectorPlaceholder
+                ]}>
+                  {editShift || "Sélectionner un horaire"}
+                </Text>
+                <ChevronDown color="#6b7280" size={20} strokeWidth={2} />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.editPresetsButton}
+                onPress={() => setShowPresetModal(true)}
+              >
+                <Text style={styles.editPresetsButtonText}>Modifier les presets</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Photo de profil</Text>
+              <View style={styles.uploadContainer}>
+                <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
+                  <Text style={styles.uploadButtonText}>Choisir une image</Text>
+                </TouchableOpacity>
+                {editAvatar ? (
+                  <Image source={{ uri: editAvatar }} style={styles.avatarPreview} />
+                ) : null}
+              </View>
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.modalButton}
+                onPress={() => setShowEditMemberModal(false)}
+              >
+                <Text style={styles.modalButtonText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.primaryButton]}
+                onPress={saveMemberChanges}
+              >
+                <Text style={styles.primaryButtonText}>Enregistrer</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Shift Picker Modal */}
+      <Modal
+        visible={showShiftPicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowShiftPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Sélectionner un horaire</Text>
+              <TouchableOpacity onPress={() => setShowShiftPicker(false)}>
+                <X color="#6b7280" size={24} strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.shiftPickerList}>
+              {shiftPresets.map((preset, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.shiftOption,
+                    editShift === preset && styles.selectedShiftOption
+                  ]}
+                  onPress={() => selectShift(preset)}
+                >
+                  <Text style={[
+                    styles.shiftOptionText,
+                    editShift === preset && styles.selectedShiftText
+                  ]}>
+                    {preset}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Preset Management Modal */}
+      <Modal
+        visible={showPresetModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPresetModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Modifier les horaires</Text>
+              <TouchableOpacity onPress={() => setShowPresetModal(false)}>
+                <X color="#6b7280" size={24} strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.presetList}>
+              {shiftPresets.map((preset, idx) => (
+                <View key={idx} style={styles.presetItem}>
+                  <TextInput
+                    style={styles.presetInput}
+                    value={preset}
+                    onChangeText={text => {
+                      const newPresets = [...shiftPresets];
+                      newPresets[idx] = text;
+                      setShiftPresets(newPresets);
+                    }}
+                  />
+                  <TouchableOpacity 
+                    style={styles.deletePresetButton}
+                    onPress={() => {
+                      const newPresets = shiftPresets.filter((_, i) => i !== idx);
+                      setShiftPresets(newPresets);
+                    }}
+                  >
+                    <X color="#ef4444" size={16} strokeWidth={2} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              
+              <View style={styles.addPresetContainer}>
+                <TextInput
+                  style={styles.presetInput}
+                  value={newPreset}
+                  onChangeText={setNewPreset}
+                  placeholder="Nouvel horaire"
+                  placeholderTextColor="#9ca3af"
+                />
+                <TouchableOpacity 
+                  style={styles.addPresetButton}
+                  onPress={() => {
+                    if (newPreset.trim()) {
+                      setShiftPresets([...shiftPresets, newPreset]);
+                      setNewPreset('');
+                    }
+                  }}
+                >
+                  <Plus color="#10b981" size={16} strokeWidth={2} />
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.modalButton}
+                onPress={() => setShowPresetModal(false)}
+              >
+                <Text style={styles.modalButtonText}>Fermer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Meeting Modal */}
       <Modal
         visible={showMeetingModal}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowMeetingModal(false)}
       >
         <View style={styles.modalOverlay}>
@@ -473,6 +931,53 @@ export default function TeamTab() {
                 onPress={scheduleMeeting}
               >
                 <Text style={styles.primaryButtonText}>Planifier</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={showDeleteConfirmModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={cancelDelete}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 350 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Confirmer la suppression</Text>
+              <TouchableOpacity onPress={cancelDelete}>
+                <X color="#6b7280" size={24} strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.confirmMessageContainer}>
+              <Text style={styles.confirmMessage}>
+                Êtes-vous sûr de vouloir supprimer{' '}
+                <Text style={styles.memberNameHighlight}>
+                  {memberToDelete?.name}
+                </Text>{' '}
+                de l'équipe ?
+              </Text>
+              <Text style={styles.confirmSubtext}>
+                Cette action est irréversible et ne peut pas être annulée.
+              </Text>
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={cancelDelete}
+              >
+                <Text style={styles.cancelButtonText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.deleteConfirmButton]}
+                onPress={confirmDelete}
+              >
+                <Text style={styles.deleteConfirmButtonText}>Supprimer définitivement</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -625,22 +1130,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    marginBottom: 8,
   },
   performanceText: {
     fontSize: 12,
     fontWeight: '600',
     color: '#ffffff',
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  rating: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginLeft: 4,
   },
   memberDetails: {
     marginBottom: 16,
@@ -657,7 +1151,7 @@ const styles = StyleSheet.create({
   },
   memberActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
   },
   actionButton: {
     flex: 1,
@@ -666,13 +1160,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#f8fafc',
     borderRadius: 8,
-    padding: 12,
+    padding: 10,
   },
   actionButtonText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#1a1a1a',
-    marginLeft: 8,
+    marginLeft: 6,
+  },
+  editButton: {
+    backgroundColor: '#fef3c7',
+  },
+  editButtonText: {
+    color: '#f59e0b',
+  },
+  deleteButton: {
+    backgroundColor: '#fef2f2',
+  },
+  deleteButtonText: {
+    color: '#ef4444',
   },
   quickActionCard: {
     backgroundColor: '#ffffff',
@@ -717,6 +1223,7 @@ const styles = StyleSheet.create({
     padding: 24,
     width: '100%',
     maxWidth: 400,
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -772,10 +1279,139 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#ffffff',
   },
-  deleteButton: {
+  shiftSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#f9fafb',
+  },
+  shiftSelectorText: {
+    fontSize: 16,
+    color: '#1a1a1a',
+  },
+  shiftSelectorPlaceholder: {
+    color: '#9ca3af',
+  },
+  editPresetsButton: {
+    marginTop: 8,
+    alignSelf: 'flex-end',
+  },
+  editPresetsButtonText: {
+    fontSize: 14,
+    color: '#3b82f6',
+    fontWeight: '600',
+  },
+  uploadContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  uploadButton: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  uploadButtonText: {
+    color: '#3b82f6',
+    fontWeight: '600',
+  },
+  avatarPreview: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  shiftPickerList: {
+    maxHeight: 300,
+  },
+  shiftOption: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    backgroundColor: '#ffffff',
+  },
+  selectedShiftOption: {
+    backgroundColor: '#3b82f6',
+  },
+  shiftOptionText: {
+    fontSize: 16,
+    color: '#1a1a1a',
+    fontWeight: '500',
+  },
+  selectedShiftText: {
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  presetList: {
+    maxHeight: 300,
+  },
+  presetItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  presetInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#1a1a1a',
+    backgroundColor: '#f9fafb',
+  },
+  deletePresetButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#fef2f2',
+  },
+  addPresetContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    gap: 8,
+  },
+  addPresetButton: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  confirmMessageContainer: {
+    marginBottom: 24,
+  },
+  confirmMessage: {
+    fontSize: 16,
+    color: '#1a1a1a',
+    marginBottom: 8,
+  },
+  memberNameHighlight: {
+    fontWeight: '600',
+  },
+  confirmSubtext: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  cancelButton: {
     backgroundColor: '#f3f4f6',
   },
-  deleteButtonText: {
-    color: '#ef4444',
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  deleteConfirmButton: {
+    backgroundColor: '#ef4444',
+  },
+  deleteConfirmButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
   },
 });

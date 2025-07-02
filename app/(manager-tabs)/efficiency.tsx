@@ -320,7 +320,7 @@ export default function EfficiencyTab() {
       <Modal
         visible={showReportModal}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowReportModal(false)}
       >
         <View style={styles.modalOverlay}>

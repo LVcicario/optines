@@ -772,10 +772,7 @@ export default function UserManagement() {
       outputRange: ['0deg', '360deg'],
     });
 
-    const translateY = opacity.interpolate({
-      inputRange: [0, 1],
-      outputRange: [50, 0],
-    });
+    // Suppression de l'animation de slide up - remplacée par fade uniquement
 
     // Couleur dynamique pour l'effet de destruction
     const backgroundColor = colorProgress.interpolate({
@@ -798,7 +795,6 @@ export default function UserManagement() {
             borderColor,
             transform: [
               { scale },
-              { translateY },
               { rotateY },
               {
                 perspective: 1000,
@@ -989,7 +985,7 @@ export default function UserManagement() {
       {/* Modal */}
       <Modal
         visible={modalVisible}
-        animationType="slide"
+        animationType="fade"
         presentationStyle="pageSheet"
       >
         <SafeAreaView style={styles.modalContainer}>

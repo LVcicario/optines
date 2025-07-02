@@ -14,7 +14,8 @@ import {
   Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Calendar as CalendarIcon, Clock, Plus, MapPin, Package, Users, Trash2, ChevronLeft, ChevronRight, X, Edit3, Check } from 'lucide-react-native';
+import { Calendar as CalendarIcon, Clock, Plus, MapPin, Package, Users, Trash2, ChevronLeft, ChevronRight, X, Edit3, Check, Pin, PinOff } from 'lucide-react-native';
+import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { router } from 'expo-router';
 
 interface ScheduledTask {
@@ -30,6 +31,8 @@ interface ScheduledTask {
   managerInitials: string;
   paletteCondition: boolean;
   teamMembers?: number[]; // IDs des membres de l'équipe
+  isPinned?: boolean;
+  isCompleted?: boolean;
 }
 
 interface Event {
@@ -495,8 +498,13 @@ export default function CalendarTab() {
     const selectedDateString = selectedDate.toISOString().split('T')[0];
     const tasksForDate = scheduledTasks.filter(task => task.date === selectedDateString);
     
-    // Trier les tâches chronologiquement par heure de début
+    // Trier les tâches : épinglées d'abord, puis par heure de début
     return tasksForDate.sort((a, b) => {
+      // Les tâches épinglées en premier
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      
+      // Puis par heure de début
       const timeA = parseInt(a.startTime.split(':')[0]) * 60 + parseInt(a.startTime.split(':')[1]);
       const timeB = parseInt(b.startTime.split(':')[0]) * 60 + parseInt(b.startTime.split(':')[1]);
       return timeA - timeB;
@@ -632,95 +640,157 @@ export default function CalendarTab() {
       });
     };
 
+    const renderRightActions = () => (
+      <View style={styles.swipeRightActions}>
+        <TouchableOpacity
+          style={[styles.swipeAction, styles.swipeDelete]}
+          onPress={() => {
+            if (task.isCompleted) {
+              onDelete(task.id);
+            } else {
+              Alert.alert('Action requise', 'Vous devez d\'abord marquer cette tâche comme terminée avant de pouvoir la supprimer.');
+            }
+          }}
+        >
+          <Trash2 color="#fff" size={20} strokeWidth={2} />
+          <Text style={styles.swipeActionText}>Supprimer</Text>
+        </TouchableOpacity>
+      </View>
+    );
+
+    const renderLeftActions = () => (
+      <View style={styles.swipeLeftActions}>
+        <TouchableOpacity
+          style={[styles.swipeAction, styles.swipePin]}
+          onPress={() => togglePinTask(task.id)}
+        >
+          {task.isPinned ? (
+            <PinOff color="#fff" size={20} strokeWidth={2} />
+          ) : (
+            <Pin color="#fff" size={20} strokeWidth={2} />
+          )}
+          <Text style={styles.swipeActionText}>
+            {task.isPinned ? 'Désépingler' : 'Épingler'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+
     return (
-      <Animated.View 
-        style={[
-          styles.taskCard,
-          {
-            opacity: deleteAnimation,
-            transform: [
-              { translateX: slideAnimation },
-              { scale: deleteAnimation }
-            ]
-          }
-        ]}
+      <Swipeable
+        renderRightActions={renderRightActions}
+        renderLeftActions={renderLeftActions}
+        rightThreshold={40}
+        leftThreshold={40}
       >
-        <View style={[styles.taskIndicatorLine, { backgroundColor: '#8b5cf6' }]} />
-        <View style={styles.taskContent}>
-          <View style={styles.taskHeader}>
-            <Text style={styles.taskTitle}>{task.title}</Text>
-            <View style={styles.taskActions}>
-              <TouchableOpacity 
-                style={styles.editButton}
-                onPress={() => onEdit(task)}
-                activeOpacity={0.7}
-              >
-                <Edit3 color="#3b82f6" size={16} strokeWidth={2} />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.deleteButton}
-                onPress={handleDelete}
-                activeOpacity={0.7}
-              >
-                <Trash2 color="#ef4444" size={16} strokeWidth={2} />
-              </TouchableOpacity>
+        <Animated.View 
+          style={[
+            styles.taskCard,
+            {
+              opacity: deleteAnimation,
+              transform: [
+                { translateX: slideAnimation },
+                { scale: deleteAnimation }
+              ]
+            }
+          ]}
+        >
+          {/* Indicateurs visuels */}
+          {task.isPinned && (
+            <View style={styles.pinIndicator}>
+              <Pin color="#f59e0b" size={16} strokeWidth={2} />
             </View>
-          </View>
-          
-          <View style={styles.taskDetails}>
-            <View style={styles.taskDetailRow}>
-              <Clock color="#6b7280" size={16} strokeWidth={2} />
-              <Text style={styles.taskDetailText}>
-                {task.startTime} - {task.endTime} ({task.duration})
-              </Text>
+          )}
+          {task.isCompleted && (
+            <View style={styles.completedIndicator}>
+              <Check color="#10b981" size={16} strokeWidth={2} />
             </View>
-            
-            <View style={styles.taskDetailRow}>
-              <Package color="#6b7280" size={16} strokeWidth={2} />
-              <Text style={styles.taskDetailText}>
-                {task.packages} colis à traiter
-              </Text>
-            </View>
-            
-            <View style={styles.taskDetailRow}>
-              <Users color="#6b7280" size={16} strokeWidth={2} />
-              <View style={styles.teamMembersContainer}>
-                {taskEmployees.length > 0 ? (
-                  <View style={styles.teamMembersList}>
-                    {taskEmployees.slice(0, 3).map((employee, index) => (
-                      <View key={employee.id} style={styles.employeeAvatarContainer}>
-                        {employee.avatar ? (
-                          <Image source={{ uri: employee.avatar }} style={styles.employeeAvatar} />
-                        ) : (
-                          <View style={styles.employeeAvatarPlaceholder}>
-                            <Users color="#3b82f6" size={12} strokeWidth={2} />
-                          </View>
-                        )}
-                        {index === 2 && taskEmployees.length > 3 && (
-                          <View style={styles.moreEmployeesIndicator}>
-                            <Text style={styles.moreEmployeesText}>+{taskEmployees.length - 3}</Text>
-                          </View>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={styles.taskDetailText}>
-                    {task.teamSize} membre{task.teamSize > 1 ? 's' : ''} d'équipe
-                  </Text>
-                )}
+          )}
+
+          <View style={[styles.taskIndicatorLine, { backgroundColor: '#8b5cf6' }]} />
+          <View style={styles.taskContent}>
+            <View style={styles.taskHeader}>
+              <Text style={styles.taskTitle}>{task.title}</Text>
+              <View style={styles.taskActions}>
+                <TouchableOpacity 
+                  style={styles.completeButton}
+                  onPress={() => toggleCompleteTask(task.id)}
+                  activeOpacity={0.7}
+                >
+                  <Check color={task.isCompleted ? "#10b981" : "#6b7280"} size={16} strokeWidth={2} />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.editButton}
+                  onPress={() => onEdit(task)}
+                  activeOpacity={0.7}
+                >
+                  <Edit3 color="#3b82f6" size={16} strokeWidth={2} />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.deleteButton}
+                  onPress={handleDelete}
+                  activeOpacity={0.7}
+                >
+                  <Trash2 color="#ef4444" size={16} strokeWidth={2} />
+                </TouchableOpacity>
               </View>
             </View>
             
-            <View style={styles.taskDetailRow}>
-              <MapPin color="#6b7280" size={16} strokeWidth={2} />
-              <Text style={styles.taskDetailText}>
-                Rayon {task.managerSection}
-              </Text>
+            <View style={styles.taskDetails}>
+              <View style={styles.taskDetailRow}>
+                <Clock color="#6b7280" size={16} strokeWidth={2} />
+                <Text style={styles.taskDetailText}>
+                  {task.startTime} - {task.endTime} ({task.duration})
+                </Text>
+              </View>
+              
+              <View style={styles.taskDetailRow}>
+                <Package color="#6b7280" size={16} strokeWidth={2} />
+                <Text style={styles.taskDetailText}>
+                  {task.packages} colis à traiter
+                </Text>
+              </View>
+              
+              <View style={styles.taskDetailRow}>
+                <Users color="#6b7280" size={16} strokeWidth={2} />
+                <View style={styles.teamMembersContainer}>
+                  {taskEmployees.length > 0 ? (
+                    <View style={styles.teamMembersList}>
+                      {taskEmployees.slice(0, 3).map((employee, index) => (
+                        <View key={employee.id} style={styles.employeeAvatarContainer}>
+                          {employee.avatar ? (
+                            <Image source={{ uri: employee.avatar }} style={styles.employeeAvatar} />
+                          ) : (
+                            <View style={styles.employeeAvatarPlaceholder}>
+                              <Users color="#3b82f6" size={12} strokeWidth={2} />
+                            </View>
+                          )}
+                          {index === 2 && taskEmployees.length > 3 && (
+                            <View style={styles.moreEmployeesIndicator}>
+                              <Text style={styles.moreEmployeesText}>+{taskEmployees.length - 3}</Text>
+                            </View>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={styles.taskDetailText}>
+                      {task.teamSize} membre{task.teamSize > 1 ? 's' : ''} d'équipe
+                    </Text>
+                  )}
+                </View>
+              </View>
+              
+              <View style={styles.taskDetailRow}>
+                <MapPin color="#6b7280" size={16} strokeWidth={2} />
+                <Text style={styles.taskDetailText}>
+                  Rayon {task.managerSection}
+                </Text>
+              </View>
             </View>
           </View>
-        </View>
-      </Animated.View>
+        </Animated.View>
+      </Swipeable>
     );
   };
 
@@ -985,9 +1055,39 @@ export default function CalendarTab() {
     }
   };
 
+  // Fonctions pour épingler/désépingler et terminer une tâche
+  const togglePinTask = async (taskId: string) => {
+    try {
+      const updatedTasks = scheduledTasks.map(task => 
+        task.id === taskId 
+          ? { ...task, isPinned: !task.isPinned }
+          : task
+      );
+      setScheduledTasks(updatedTasks);
+      await AsyncStorage.setItem('scheduledTasks', JSON.stringify(updatedTasks));
+    } catch (error) {
+      console.error('Error toggling pin task:', error);
+    }
+  };
+
+  const toggleCompleteTask = async (taskId: string) => {
+    try {
+      const updatedTasks = scheduledTasks.map(task => 
+        task.id === taskId 
+          ? { ...task, isCompleted: !task.isCompleted }
+          : task
+      );
+      setScheduledTasks(updatedTasks);
+      await AsyncStorage.setItem('scheduledTasks', JSON.stringify(updatedTasks));
+    } catch (error) {
+      console.error('Error toggling complete task:', error);
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container}>
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <CalendarIcon color="#3b82f6" size={32} strokeWidth={2} />
@@ -2197,7 +2297,8 @@ export default function CalendarTab() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -3235,5 +3336,63 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
+  },
+  // Styles pour le swipe
+  swipeRightActions: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    backgroundColor: 'transparent',
+  },
+  swipeLeftActions: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    backgroundColor: 'transparent',
+  },
+  swipeAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 8,
+    margin: 8,
+  },
+  swipeDelete: {
+    backgroundColor: '#ef4444',
+  },
+  swipePin: {
+    backgroundColor: '#f59e0b',
+  },
+  swipeActionText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  pinIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 2,
+    backgroundColor: '#fff7e6',
+    borderRadius: 8,
+    padding: 2,
+  },
+  completedIndicator: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 2,
+    backgroundColor: '#e6fff7',
+    borderRadius: 8,
+    padding: 2,
+  },
+  completeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
 });

@@ -308,7 +308,7 @@ export default function ManagerHomeTab() {
       <Modal
         visible={showNotificationModal}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowNotificationModal(false)}
       >
         <View style={styles.modalOverlay}>

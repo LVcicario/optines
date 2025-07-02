@@ -15,9 +15,18 @@ import { router } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
+interface Alert {
+  id: number;
+  managerId: number;
+  type: string;
+  severity: string;
+  message: string;
+  timestamp: string;
+}
+
 export default function DirecteurDashboard() {
   const [alertModal, setAlertModal] = useState(false);
-  const [selectedAlert, setSelectedAlert] = useState(null);
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
 
   const managers = [
     {
@@ -256,7 +265,7 @@ export default function DirecteurDashboard() {
     return '#ef4444'; // critical - more than 3 hours
   };
 
-  const showAlert = (alert: any) => {
+  const showAlert = (alert: Alert) => {
     setSelectedAlert(alert);
     setAlertModal(true);
   };
@@ -479,7 +488,7 @@ export default function DirecteurDashboard() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <AlertTriangle 
-                color={getSeverityColor(selectedAlert?.severity)} 
+                color={getSeverityColor(selectedAlert?.severity || 'warning')} 
                 size={24} 
                 strokeWidth={2} 
               />
@@ -490,7 +499,7 @@ export default function DirecteurDashboard() {
             </View>
             
             <Text style={styles.modalMessage}>
-              {selectedAlert?.message}
+              {selectedAlert?.message || 'Aucun message disponible'}
             </Text>
             
             <View style={styles.modalActions}>

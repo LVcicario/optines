@@ -21,7 +21,7 @@ import { useUserDatabase } from '../hooks/useUserDatabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function LoginScreen() {
-  const { userType } = useLocalSearchParams<{ userType: string }>();
+  const { userType, animation } = useLocalSearchParams<{ userType: string; animation?: string }>();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -49,6 +49,7 @@ export default function LoginScreen() {
 
   // Animations pour améliorer la réactivité
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const slideAnim = React.useRef(new Animated.Value(0)).current;
   const buttonScaleAnim = React.useRef(new Animated.Value(1)).current;
   const popupScaleAnim = React.useRef(new Animated.Value(0)).current;
   const popupOpacityAnim = React.useRef(new Animated.Value(0)).current;
@@ -111,12 +112,30 @@ export default function LoginScreen() {
   // Animation d'entrée fluide
   React.useEffect(() => {
     // Animation simplifiée pour améliorer la réactivité
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: Platform.OS !== 'web',
-    }).start();
-  }, []);
+    if (animation === 'slide_from_left') {
+      // Animation de glissement depuis la gauche
+      slideAnim.setValue(-screenWidth);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+      ]).start();
+    } else {
+      // Animation de fondu simple
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: Platform.OS !== 'web',
+      }).start();
+    }
+  }, [animation, screenWidth]);
 
   // Écouter les changements de dimensions
   React.useEffect(() => {
@@ -244,6 +263,25 @@ export default function LoginScreen() {
     // Note: React Native n'a pas de focus automatique, l'utilisateur devra cliquer manuellement
   }, [lastUsername, showPopup]);
 
+  // Fonction de connexion rapide pour le développement
+  const handleDevQuickLogin = useCallback(() => {
+    console.log('🚀 Connexion rapide DEV activée');
+    
+    // Utiliser les identifiants de test selon le rôle
+    if (isManager) {
+      setUsername('maxime.r');
+      setPassword('MR2024!');
+    } else {
+      setUsername('admin.directeur');
+      setPassword('ADMIN2024!');
+    }
+    
+    // Déclencher la connexion automatiquement après un court délai
+    setTimeout(() => {
+      handleLogin();
+    }, 100);
+  }, [isManager, handleLogin]);
+
   // Optimisation avec useMemo pour éviter les recalculs
   const example = useMemo(() => {
     return {
@@ -370,10 +408,18 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
+      <Animated.View 
+        style={[
+          styles.keyboardView,
+          {
+            transform: [{ translateX: slideAnim }]
+          }
+        ]}
       >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
         <ScrollView 
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
@@ -533,6 +579,17 @@ export default function LoginScreen() {
                 </Text>
               </TouchableOpacity>
 
+              {/* Development Quick Login Button */}
+              <TouchableOpacity
+                style={styles.devQuickLoginButton}
+                onPress={handleDevQuickLogin}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.devQuickLoginText}>
+                  🚀 Connexion rapide (DEV)
+                </Text>
+              </TouchableOpacity>
+
               {/* Help Text */}
               <View style={styles.helpContainer}>
                 <Text style={styles.helpText}>
@@ -542,7 +599,8 @@ export default function LoginScreen() {
             </LinearGradient>
           </Animated.View>
         </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </Animated.View>
 
       {/* Error Popup */}
       {showErrorPopup && (
@@ -772,5 +830,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  devQuickLoginButton: {
+    backgroundColor: '#fef3c7',
+    borderRadius: Platform.OS === 'web' ? 16 : 12,
+    padding: Platform.OS === 'web' ? 24 : 12,
+    alignItems: 'center',
+    marginBottom: Platform.OS === 'web' ? 24 : 16,
+    borderWidth: 2,
+    borderColor: '#f59e0b',
+    minHeight: Platform.OS === 'web' ? 64 : 44,
+  },
+  devQuickLoginText: {
+    fontSize: Platform.OS === 'web' ? 20 : 14,
+    fontWeight: '600',
+    color: '#f59e0b',
   },
 });

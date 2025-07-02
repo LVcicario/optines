@@ -1418,7 +1418,7 @@ export default function JobCalculatorTab() {
       <Modal
         visible={showConflictModal}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowConflictModal(false)}
       >
         <View style={styles.modalOverlay}>
@@ -1495,7 +1495,7 @@ export default function JobCalculatorTab() {
       <Modal
         visible={showEmployeeSelector}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowEmployeeSelector(false)}
       >
         <View style={styles.modalOverlay}>
