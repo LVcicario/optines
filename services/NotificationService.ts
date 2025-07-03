@@ -1,6 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNotifications } from '../hooks/useNotifications';
 
+interface SmartReminder {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  reminderTime: string; // Format: "HH:MM"
+  reminderDate: string; // Format: "YYYY-MM-DD"
+  type: 'start' | 'preparation' | 'team_ready' | 'efficiency_alert';
+  message: string;
+  isEnabled: boolean;
+  teamLoadPercentage?: number;
+  suggestedTeamSize?: number;
+}
+
 export class NotificationService {
   private static instance: NotificationService;
   private notificationHook: ReturnType<typeof useNotifications> | null = null;
@@ -81,6 +94,267 @@ export class NotificationService {
     );
   }
 
+  // Analyser la charge de travail de l'équipe pour une date donnée
+  async analyzeTeamWorkload(date: string): Promise<{
+    totalPackages: number;
+    totalTeamMembers: number;
+    averageLoadPerPerson: number;
+    peakHours: string[];
+    suggestedTeamSize: number;
+  }> {
+    try {
+      const existingTasksString = await AsyncStorage.getItem('scheduledTasks');
+      if (!existingTasksString) {
+        return {
+          totalPackages: 0,
+          totalTeamMembers: 0,
+          averageLoadPerPerson: 0,
+          peakHours: [],
+          suggestedTeamSize: 1
+        };
+      }
+
+      const existingTasks = JSON.parse(existingTasksString);
+      const tasksForDate = existingTasks.filter((task: any) => task.date === date);
+      
+      let totalPackages = 0;
+      let totalTeamMembers = 0;
+      const hourlyLoad: { [hour: string]: number } = {};
+
+      for (const task of tasksForDate) {
+        totalPackages += task.packages || 0;
+        totalTeamMembers += task.teamSize || 1;
+
+        // Analyser la charge par heure
+        const startHour = parseInt(task.startTime.split(':')[0]);
+        const endHour = parseInt(task.endTime.split(':')[0]);
+        
+        for (let hour = startHour; hour < endHour; hour++) {
+          const hourKey = hour.toString().padStart(2, '0');
+          hourlyLoad[hourKey] = (hourlyLoad[hourKey] || 0) + (task.packages || 0);
+        }
+      }
+
+      // Trouver les heures de pointe
+      const peakHours = Object.entries(hourlyLoad)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 3)
+        .map(([hour]) => hour + ':00');
+
+      // Calculer la taille d'équipe suggérée
+      const averageLoadPerPerson = totalTeamMembers > 0 ? totalPackages / totalTeamMembers : 0;
+      const suggestedTeamSize = Math.max(1, Math.ceil(totalPackages / 50)); // 50 colis par personne par défaut
+
+      return {
+        totalPackages,
+        totalTeamMembers,
+        averageLoadPerPerson,
+        peakHours,
+        suggestedTeamSize
+      };
+    } catch (error) {
+      console.error('Error analyzing team workload:', error);
+      return {
+        totalPackages: 0,
+        totalTeamMembers: 0,
+        averageLoadPerPerson: 0,
+        peakHours: [],
+        suggestedTeamSize: 1
+      };
+    }
+  }
+
+  // Générer des rappels intelligents pour une tâche
+  async generateSmartReminders(task: any): Promise<SmartReminder[]> {
+    const reminders: SmartReminder[] = [];
+    const taskDate = task.date;
+    const taskStartTime = task.startTime;
+    const taskEndTime = task.endTime;
+
+    // Analyser la charge de travail
+    const workload = await this.analyzeTeamWorkload(taskDate);
+
+    // 1. Rappel de début de tâche (15 minutes avant)
+    const startReminderTime = this.subtractMinutes(taskStartTime, 15);
+    reminders.push({
+      id: `start_${task.id}`,
+      taskId: task.id,
+      taskTitle: task.title,
+      reminderTime: startReminderTime,
+      reminderDate: taskDate,
+      type: 'start',
+      message: `🚀 Début de la réception de colis à ${taskStartTime} - ${task.packages} colis à traiter`,
+      isEnabled: true
+    });
+
+    // 2. Rappel de préparation (30 minutes avant)
+    const prepReminderTime = this.subtractMinutes(taskStartTime, 30);
+    reminders.push({
+      id: `prep_${task.id}`,
+      taskId: task.id,
+      taskTitle: task.title,
+      reminderTime: prepReminderTime,
+      reminderDate: taskDate,
+      type: 'preparation',
+      message: `⚡ Préparation pour la réception de colis à ${taskStartTime} - Vérifiez l'équipement`,
+      isEnabled: true
+    });
+
+    // 3. Rappel d'équipe prête (45 minutes avant)
+    const teamReminderTime = this.subtractMinutes(taskStartTime, 45);
+    reminders.push({
+      id: `team_${task.id}`,
+      taskId: task.id,
+      taskTitle: task.title,
+      reminderTime: teamReminderTime,
+      reminderDate: taskDate,
+      type: 'team_ready',
+      message: `👥 Équipe requise pour la réception de colis à ${taskStartTime} - ${task.teamSize} personne(s)`,
+      isEnabled: true
+    });
+
+    // 4. Alerte d'efficacité si charge élevée
+    if (workload.averageLoadPerPerson > 60) {
+      const efficiencyReminderTime = this.subtractMinutes(taskStartTime, 60);
+      reminders.push({
+        id: `efficiency_${task.id}`,
+        taskId: task.id,
+        taskTitle: task.title,
+        reminderTime: efficiencyReminderTime,
+        reminderDate: taskDate,
+        type: 'efficiency_alert',
+        message: `⚠️ Charge élevée détectée: ${Math.round(workload.averageLoadPerPerson)} colis/personne. Considérez augmenter l'équipe.`,
+        isEnabled: true,
+        teamLoadPercentage: Math.round(workload.averageLoadPerPerson),
+        suggestedTeamSize: workload.suggestedTeamSize
+      });
+    }
+
+    return reminders;
+  }
+
+  // Soustraire des minutes d'une heure
+  private subtractMinutes(time: string, minutes: number): string {
+    const [hours, mins] = time.split(':').map(Number);
+    const totalMinutes = hours * 60 + mins - minutes;
+    const newHours = Math.floor(totalMinutes / 60);
+    const newMins = totalMinutes % 60;
+    return `${newHours.toString().padStart(2, '0')}:${newMins.toString().padStart(2, '0')}`;
+  }
+
+  // Sauvegarder les rappels intelligents
+  async saveSmartReminders(taskId: string, reminders: SmartReminder[]) {
+    try {
+      const existingRemindersString = await AsyncStorage.getItem('smartReminders');
+      const existingReminders = existingRemindersString ? JSON.parse(existingRemindersString) : {};
+      
+      existingReminders[taskId] = reminders;
+      await AsyncStorage.setItem('smartReminders', JSON.stringify(existingReminders));
+    } catch (error) {
+      console.error('Error saving smart reminders:', error);
+    }
+  }
+
+  // Récupérer les rappels intelligents pour une tâche
+  async getSmartReminders(taskId: string): Promise<SmartReminder[]> {
+    try {
+      const existingRemindersString = await AsyncStorage.getItem('smartReminders');
+      const existingReminders = existingRemindersString ? JSON.parse(existingRemindersString) : {};
+      return existingReminders[taskId] || [];
+    } catch (error) {
+      console.error('Error getting smart reminders:', error);
+      return [];
+    }
+  }
+
+  // Récupérer tous les rappels intelligents
+  async getAllSmartReminders(): Promise<SmartReminder[]> {
+    try {
+      const existingRemindersString = await AsyncStorage.getItem('smartReminders');
+      const existingReminders = existingRemindersString ? JSON.parse(existingRemindersString) : {};
+      
+      const allReminders: SmartReminder[] = [];
+      Object.values(existingReminders).forEach((taskReminders: any) => {
+        allReminders.push(...taskReminders);
+      });
+      
+      return allReminders;
+    } catch (error) {
+      console.error('Error getting all smart reminders:', error);
+      return [];
+    }
+  }
+
+  // Activer/désactiver un rappel
+  async toggleReminder(reminderId: string, isEnabled: boolean) {
+    try {
+      const existingRemindersString = await AsyncStorage.getItem('smartReminders');
+      const existingReminders = existingRemindersString ? JSON.parse(existingRemindersString) : {};
+      
+      // Trouver et mettre à jour le rappel
+      Object.keys(existingReminders).forEach(taskId => {
+        const taskReminders = existingReminders[taskId];
+        const reminderIndex = taskReminders.findIndex((r: SmartReminder) => r.id === reminderId);
+        if (reminderIndex !== -1) {
+          taskReminders[reminderIndex].isEnabled = isEnabled;
+        }
+      });
+      
+      await AsyncStorage.setItem('smartReminders', JSON.stringify(existingReminders));
+    } catch (error) {
+      console.error('Error toggling reminder:', error);
+    }
+  }
+
+  // Supprimer un rappel
+  async deleteReminder(reminderId: string) {
+    try {
+      const existingRemindersString = await AsyncStorage.getItem('smartReminders');
+      const existingReminders = existingRemindersString ? JSON.parse(existingRemindersString) : {};
+      
+      // Trouver et supprimer le rappel
+      Object.keys(existingReminders).forEach(taskId => {
+        existingReminders[taskId] = existingReminders[taskId].filter((r: SmartReminder) => r.id !== reminderId);
+      });
+      
+      await AsyncStorage.setItem('smartReminders', JSON.stringify(existingReminders));
+    } catch (error) {
+      console.error('Error deleting reminder:', error);
+    }
+  }
+
+  // Programmer des rappels intelligents pour une tâche
+  async scheduleSmartReminders(task: any) {
+    const reminders = await this.generateSmartReminders(task);
+    await this.saveSmartReminders(task.id, reminders);
+    
+    // Programmer les notifications pour les rappels activés
+    for (const reminder of reminders) {
+      if (reminder.isEnabled) {
+        await this.scheduleReminderNotification(reminder);
+      }
+    }
+  }
+
+  // Programmer une notification pour un rappel
+  async scheduleReminderNotification(reminder: SmartReminder) {
+    if (!this.notificationHook) return;
+
+    const reminderDate = new Date(`${reminder.reminderDate}T${reminder.reminderTime}`);
+    const now = new Date();
+
+    // Ne programmer que pour les rappels futurs
+    if (reminderDate > now) {
+      await this.notificationHook.scheduleNotification(
+        reminder.id,
+        'Rappel tâche',
+        reminder.message,
+        reminderDate,
+        { type: 'smart_reminder', reminderId: reminder.id, taskId: reminder.taskId }
+      );
+    }
+  }
+
   // Programmer des rappels pour toutes les tâches existantes
   async scheduleRemindersForExistingTasks() {
     try {
@@ -96,6 +370,7 @@ export class NotificationService {
         // Ne programmer que pour les tâches futures
         if (taskDate > now) {
           await this.scheduleTaskReminder(task);
+          await this.scheduleSmartReminders(task);
         }
       }
     } catch (error) {

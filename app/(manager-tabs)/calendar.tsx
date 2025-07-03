@@ -14,9 +14,11 @@ import {
   Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Calendar as CalendarIcon, Clock, Plus, MapPin, Package, Users, Trash2, ChevronLeft, ChevronRight, X, Edit3, Check, Pin, PinOff } from 'lucide-react-native';
+import { Calendar as CalendarIcon, Clock, Plus, MapPin, Package, Users, Trash2, ChevronLeft, ChevronRight, X, Edit3, Check, Pin, PinOff, Bell, BellOff } from 'lucide-react-native';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { router } from 'expo-router';
+import { notificationService } from '../../services/NotificationService';
+import DatePickerCalendar from '../../components/DatePickerCalendar';
 
 interface ScheduledTask {
   id: string;
@@ -43,11 +45,32 @@ interface Event {
   duration: string;
   location: string;
   type: string;
+  date: string; // Date de l'événement au format YYYY-MM-DD
 }
 
 interface WorkingHours {
   start: string;
   end: string;
+}
+
+interface TeamMember {
+  id: number;
+  name: string;
+  role?: string;
+  avatar?: string;
+}
+
+interface SmartReminder {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  reminderTime: string;
+  reminderDate: string;
+  type: 'start' | 'preparation' | 'team_ready' | 'efficiency_alert';
+  message: string;
+  isEnabled: boolean;
+  teamLoadPercentage?: number;
+  suggestedTeamSize?: number;
 }
 
 export default function CalendarTab() {
@@ -61,6 +84,8 @@ export default function CalendarTab() {
   const [eventTitle, setEventTitle] = useState('');
   const [eventTime, setEventTime] = useState('');
   const [eventLocation, setEventLocation] = useState('');
+  const [eventDate, setEventDate] = useState(new Date());
+  const [showEventDatePicker, setShowEventDatePicker] = useState(false);
   const [workingHours, setWorkingHours] = useState<WorkingHours>({ start: '05:00', end: '21:00' });
   const [tempWorkingHours, setTempWorkingHours] = useState<WorkingHours>({ start: '05:00', end: '21:00' });
 
@@ -82,39 +107,42 @@ export default function CalendarTab() {
   const [editEventEndTime, setEditEventEndTime] = useState('');
   const [editEventLocation, setEditEventLocation] = useState('');
   const [editEventType, setEditEventType] = useState('');
-  const [showEditEventTimePicker, setShowEditEventTimePicker] = useState(false);
-  const [showEditEventEndTimePicker, setShowEditEventEndTimePicker] = useState(false);
-  const [timePickerMode, setTimePickerMode] = useState<'start' | 'end'>('start');
+  const [editEventDate, setEditEventDate] = useState(new Date());
+  const [showEditEventDatePicker, setShowEditEventDatePicker] = useState(false);
 
-  // États pour le nouveau sélecteur d'heure
+  // États pour les rappels intelligents
+  const [showRemindersModal, setShowRemindersModal] = useState(false);
+  const [selectedTaskForReminders, setSelectedTaskForReminders] = useState<ScheduledTask | null>(null);
+  const [taskReminders, setTaskReminders] = useState<SmartReminder[]>([]);
+  const [workloadAnalysis, setWorkloadAnalysis] = useState<any>(null);
+
+  // États pour les time pickers
   const [tempEditHour, setTempEditHour] = useState('05');
   const [tempEditMinute, setTempEditMinute] = useState('00');
-  const [tempEventHour, setTempEventHour] = useState('05');
+  const [tempEventHour, setTempEventHour] = useState('09');
   const [tempEventMinute, setTempEventMinute] = useState('00');
-
-  // États pour la confirmation de suppression
+  const [tempAddEventHour, setTempAddEventHour] = useState('09');
+  const [tempAddEventMinute, setTempAddEventMinute] = useState('00');
+  const [showEditEventTimePicker, setShowEditEventTimePicker] = useState(false);
+  const [showAddEventTimePicker, setShowAddEventTimePicker] = useState(false);
+  const [timePickerMode, setTimePickerMode] = useState<'start' | 'end'>('start');
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<Event | null>(null);
 
-  // États pour le sélecteur d'heure lors de l'ajout d'événement
-  const [showAddEventTimePicker, setShowAddEventTimePicker] = useState(false);
-  const [tempAddEventHour, setTempAddEventHour] = useState('09');
-  const [tempAddEventMinute, setTempAddEventMinute] = useState('00');
-
-  // État pour tous les employés
-  const [allEmployees, setAllEmployees] = useState<any[]>([]);
-
-  // États pour le menu de sélection des employés dans l'édition
+  // États pour la sélection d'employés
   const [showEmployeeSelector, setShowEmployeeSelector] = useState(false);
+  const [allEmployees, setAllEmployees] = useState<TeamMember[]>([]);
+  const [editTeamMembers, setEditTeamMembers] = useState<TeamMember[]>([]);
   const [assignedEmployeeIds, setAssignedEmployeeIds] = useState<number[]>([]);
-  const [editTeamMembers, setEditTeamMembers] = useState<any[]>([]);
 
   // Animations
+  const slideAnimation = useRef(new Animated.Value(0)).current;
   const editModalOpacity = useRef(new Animated.Value(0)).current;
   const editModalScale = useRef(new Animated.Value(0.8)).current;
-  const slideAnimation = useRef(new Animated.Value(50)).current;
   const datePickerOpacity = useRef(new Animated.Value(0)).current;
   const datePickerScale = useRef(new Animated.Value(0.9)).current;
+  const remindersModalOpacity = useRef(new Animated.Value(0)).current;
+  const remindersModalScale = useRef(new Animated.Value(0.8)).current;
 
   // Événements en état pour permettre la modification
   const [events, setEvents] = useState<Event[]>([
@@ -125,7 +153,8 @@ export default function CalendarTab() {
       endTime: '10:00',
       duration: '1h',
       location: 'Salle de pause',
-      type: 'meeting'
+      type: 'meeting',
+      date: new Date().toISOString().split('T')[0] // Aujourd'hui
     },
     {
       id: 2,
@@ -134,7 +163,8 @@ export default function CalendarTab() {
       endTime: '18:00',
       duration: '1h30',
       location: 'Salle de formation',
-      type: 'training'
+      type: 'training',
+      date: new Date().toISOString().split('T')[0] // Aujourd'hui
     }
   ]);
 
@@ -354,8 +384,8 @@ export default function CalendarTab() {
 
   const openEditTimePicker = () => {
     const [hour, minute] = editStartTime.split(':');
-    setTempEditHour(hour);
-    setTempEditMinute(minute);
+    setTempEditHour(hour || '05');
+    setTempEditMinute(minute || '00');
     setShowEditTimePicker(true);
   };
 
@@ -434,18 +464,7 @@ export default function CalendarTab() {
     });
   };
 
-  const generateDateOptions = () => {
-    const dates = [];
-    const today = new Date();
-    
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
-      dates.push(date);
-    }
-    
-    return dates;
-  };
+
 
   const addEvent = () => {
     if (!eventTitle.trim() || !eventTime.trim()) {
@@ -461,7 +480,8 @@ export default function CalendarTab() {
       endTime: '10:00', // Heure de fin par défaut, à ajuster selon la durée
       duration: '1h', // Durée par défaut
       location: eventLocation || 'Non spécifié',
-      type: 'meeting' // Type par défaut
+      type: 'meeting', // Type par défaut
+      date: eventDate.toISOString().split('T')[0] // Date au format YYYY-MM-DD
     };
 
     // Ajouter l'événement à l'état
@@ -471,9 +491,15 @@ export default function CalendarTab() {
     setEventTitle('');
     setEventTime('');
     setEventLocation('');
+    setEventDate(new Date());
     setShowEventModal(false);
     
-    Alert.alert('Succès', `Événement "${newEvent.title}" ajouté avec succès`);
+    Alert.alert('Succès', `Événement "${newEvent.title}" ajouté avec succès pour le ${eventDate.toLocaleDateString('fr-FR', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })}`);
   };
 
   const saveWorkingHours = async () => {
@@ -713,6 +739,13 @@ export default function CalendarTab() {
               <Text style={styles.taskTitle}>{task.title}</Text>
               <View style={styles.taskActions}>
                 <TouchableOpacity 
+                  style={styles.reminderButton}
+                  onPress={() => openRemindersModal(task)}
+                  activeOpacity={0.7}
+                >
+                  <Bell color="#8b5cf6" size={16} strokeWidth={2} />
+                </TouchableOpacity>
+                <TouchableOpacity 
                   style={styles.completeButton}
                   onPress={() => toggleCompleteTask(task.id)}
                   activeOpacity={0.7}
@@ -801,6 +834,7 @@ export default function CalendarTab() {
     setEditEventEndTime(event.endTime);
     setEditEventLocation(event.location);
     setEditEventType(event.type);
+    setEditEventDate(new Date(event.date)); // Initialiser la date
     setShowEditEventModal(true);
   };
 
@@ -885,7 +919,8 @@ export default function CalendarTab() {
             endTime: editEventEndTime,
             duration: duration,
             location: editEventLocation,
-            type: editEventType
+            type: editEventType,
+            date: editEventDate.toISOString().split('T')[0] // Date au format YYYY-MM-DD
           }
         : event
     );
@@ -899,13 +934,27 @@ export default function CalendarTab() {
     setTimePickerMode(mode);
     const currentTime = mode === 'start' ? editEventStartTime : editEventEndTime;
     const [hour, minute] = currentTime.split(':');
-    setTempEventHour(hour);
-    setTempEventMinute(minute);
+    setTempEventHour(hour || (mode === 'start' ? '09' : '10'));
+    setTempEventMinute(minute || '00');
     setShowEditEventTimePicker(true);
   };
 
   const closeEventTimePicker = () => {
     setShowEditEventTimePicker(false);
+  };
+
+  // Initialiser les valeurs temporaires pour l'édition d'événement
+  const initializeEventTimePicker = (mode: 'start' | 'end') => {
+    setTimePickerMode(mode);
+    if (mode === 'start') {
+      const [hour, minute] = editEventStartTime.split(':');
+      setTempEventHour(hour || '09');
+      setTempEventMinute(minute || '00');
+    } else {
+      const [hour, minute] = editEventEndTime.split(':');
+      setTempEventHour(hour || '10');
+      setTempEventMinute(minute || '00');
+    }
   };
 
   // Générer les heures disponibles selon les heures de travail
@@ -943,7 +992,23 @@ export default function CalendarTab() {
     setShowAddEventTimePicker(true);
   };
 
-  // Vérifier si un employé est déjà assigné à une tâche qui se chevauche
+  const openEventDatePicker = () => {
+    setShowEventDatePicker(true);
+  };
+
+  const closeEventDatePicker = () => {
+    setShowEventDatePicker(false);
+  };
+
+  const openEditEventDatePicker = () => {
+    setShowEditEventDatePicker(true);
+  };
+
+  const closeEditEventDatePicker = () => {
+    setShowEditEventDatePicker(false);
+  };
+
+  // Vérifier si un employé est déjà assigné à une tâche (occupé ou en conflit)
   const isEmployeeAssigned = async (employeeId: number) => {
     try {
       const existingTasksString = await AsyncStorage.getItem('scheduledTasks');
@@ -986,10 +1051,18 @@ export default function CalendarTab() {
         // Vérifier si l'employé est dans cette tâche
         const isInTask = task.teamMembers && task.teamMembers.includes(employeeId);
         
-        // Pour les anciennes tâches sans teamMembers, on considère que tous les employés sont assignés
+        // Ne pas considérer les anciennes tâches sans teamMembers comme des conflits
+        // car on ne peut pas savoir qui était assigné et on veut permettre l'assignation
         const isLegacyTask = !task.teamMembers;
         
-        if (hasConflict && (isInTask || isLegacyTask)) {
+        // Vérifier les conflits pour les tâches avec des employés explicitement assignés
+        if (hasConflict && isInTask) {
+          return true;
+        }
+        
+        // Vérifier si l'employé est simplement assigné à une tâche (même sans conflit temporel)
+        // pour éviter qu'il soit assigné à plusieurs tâches
+        if (isInTask) {
           return true;
         }
       }
@@ -998,6 +1071,124 @@ export default function CalendarTab() {
     } catch (error) {
       console.error('Error checking employee assignment:', error);
       return false;
+    }
+  };
+
+  // Ouvrir le modal des rappels intelligents
+  const openRemindersModal = async (task: ScheduledTask) => {
+    setSelectedTaskForReminders(task);
+    
+    // Charger les rappels existants
+    const reminders = await notificationService.getSmartReminders(task.id);
+    setTaskReminders(reminders);
+    
+    // Analyser la charge de travail
+    const workload = await notificationService.analyzeTeamWorkload(task.date);
+    setWorkloadAnalysis(workload);
+    
+    setShowRemindersModal(true);
+    
+    // Animation d'entrée
+    remindersModalOpacity.setValue(0);
+    remindersModalScale.setValue(0.8);
+    
+    Animated.parallel([
+      Animated.timing(remindersModalOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(remindersModalScale, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // Fermer le modal des rappels
+  const closeRemindersModal = () => {
+    Animated.timing(remindersModalOpacity, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    
+    Animated.timing(remindersModalScale, {
+      toValue: 0.8,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowRemindersModal(false);
+      setSelectedTaskForReminders(null);
+      setTaskReminders([]);
+      setWorkloadAnalysis(null);
+    });
+  };
+
+  // Activer/désactiver un rappel
+  const toggleReminder = async (reminderId: string, isEnabled: boolean) => {
+    await notificationService.toggleReminder(reminderId, isEnabled);
+    
+    // Mettre à jour l'état local
+    setTaskReminders(prev => 
+      prev.map(reminder => 
+        reminder.id === reminderId 
+          ? { ...reminder, isEnabled }
+          : reminder
+      )
+    );
+  };
+
+  // Supprimer un rappel
+  const deleteReminder = async (reminderId: string) => {
+    Alert.alert(
+      'Supprimer le rappel',
+      'Êtes-vous sûr de vouloir supprimer ce rappel ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            await notificationService.deleteReminder(reminderId);
+            setTaskReminders(prev => prev.filter(r => r.id !== reminderId));
+          }
+        }
+      ]
+    );
+  };
+
+  // Régénérer les rappels intelligents
+  const regenerateReminders = async () => {
+    if (!selectedTaskForReminders) return;
+    
+    const newReminders = await notificationService.generateSmartReminders(selectedTaskForReminders);
+    await notificationService.saveSmartReminders(selectedTaskForReminders.id, newReminders);
+    setTaskReminders(newReminders);
+    
+    Alert.alert('Succès', 'Rappels intelligents régénérés avec succès');
+  };
+
+  // Obtenir l'icône pour le type de rappel
+  const getReminderIcon = (type: string) => {
+    switch (type) {
+      case 'start': return '🚀';
+      case 'preparation': return '⚡';
+      case 'team_ready': return '👥';
+      case 'efficiency_alert': return '⚠️';
+      default: return '🔔';
+    }
+  };
+
+  // Obtenir la couleur pour le type de rappel
+  const getReminderColor = (type: string) => {
+    switch (type) {
+      case 'start': return '#10b981';
+      case 'preparation': return '#3b82f6';
+      case 'team_ready': return '#8b5cf6';
+      case 'efficiency_alert': return '#f59e0b';
+      default: return '#6b7280';
     }
   };
 
@@ -1421,6 +1612,24 @@ export default function CalendarTab() {
             </View>
 
             <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Date *</Text>
+              <TouchableOpacity 
+                style={styles.dateSelector}
+                onPress={openEventDatePicker}
+              >
+                <CalendarIcon color="#3b82f6" size={20} strokeWidth={2} />
+                <Text style={styles.dateText}>
+                  {eventDate.toLocaleDateString('fr-FR', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Heure de début *</Text>
               <TouchableOpacity 
                 style={styles.dateSelector}
@@ -1461,6 +1670,16 @@ export default function CalendarTab() {
           </View>
         </View>
       </Modal>
+
+      {/* Interactive Calendar Date Picker for New Event */}
+      <DatePickerCalendar
+        visible={showEventDatePicker}
+        onClose={closeEventDatePicker}
+        onDateSelect={(date) => setEventDate(date)}
+        selectedDate={eventDate}
+        minDate={new Date()}
+        maxDate={new Date(Date.now() + 84 * 24 * 60 * 60 * 1000)} // 12 weeks from now
+      />
 
       {/* Edit Task Modal */}
       <Modal
@@ -1684,54 +1903,15 @@ export default function CalendarTab() {
         {/* <-- C'est ici qu'il faut insérer le menu */}
       </Modal>
 
-      {/* Edit Date Picker Modal */}
-      <Modal
+      {/* Interactive Calendar Date Picker for Edit */}
+      <DatePickerCalendar
         visible={showEditDatePicker}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={closeDatePicker}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sélectionner une date</Text>
-              <TouchableOpacity onPress={closeDatePicker}>
-                <X color="#6b7280" size={24} strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={styles.dateList}>
-              {generateDateOptions().map((date, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.dateOption,
-                    editDate.toDateString() === date.toDateString() && styles.selectedDateOption
-                  ]}
-                  onPress={() => {
-                    setEditDate(date);
-                    closeDatePicker();
-                  }}
-                >
-                  <Text style={[
-                    styles.dateOptionText,
-                    editDate.toDateString() === date.toDateString() && styles.selectedDateText
-                  ]}>
-                    {date.toLocaleDateString('fr-FR', {
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
-                  </Text>
-                  {index === 0 && <Text style={styles.todayBadge}>Aujourd'hui</Text>}
-                  {index === 1 && <Text style={styles.tomorrowBadge}>Demain</Text>}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+        onClose={closeDatePicker}
+        onDateSelect={(date) => setEditDate(date)}
+        selectedDate={editDate}
+        minDate={new Date()}
+        maxDate={new Date(Date.now() + 84 * 24 * 60 * 60 * 1000)} // 12 weeks from now
+      />
 
       {/* Edit Time Picker Modal */}
       <Modal
@@ -1857,6 +2037,24 @@ export default function CalendarTab() {
             </View>
 
             <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Date *</Text>
+              <TouchableOpacity 
+                style={styles.dateSelector}
+                onPress={openEditEventDatePicker}
+              >
+                <CalendarIcon color="#3b82f6" size={20} strokeWidth={2} />
+                <Text style={styles.dateText}>
+                  {editEventDate.toLocaleDateString('fr-FR', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Heure de début *</Text>
               <TouchableOpacity 
                 style={styles.dateSelector}
@@ -1954,6 +2152,16 @@ export default function CalendarTab() {
           </View>
         </View>
       </Modal>
+
+      {/* Interactive Calendar Date Picker for Edit Event */}
+      <DatePickerCalendar
+        visible={showEditEventDatePicker}
+        onClose={closeEditEventDatePicker}
+        onDateSelect={(date) => setEditEventDate(date)}
+        selectedDate={editEventDate}
+        minDate={new Date()}
+        maxDate={new Date(Date.now() + 84 * 24 * 60 * 60 * 1000)} // 12 weeks from now
+      />
 
       {/* Edit Event Time Picker Modal */}
       <Modal
@@ -2296,6 +2504,73 @@ export default function CalendarTab() {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* Smart Reminders Modal */}
+      <Modal
+        visible={showRemindersModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closeRemindersModal}
+      >
+        <Animated.View style={[styles.modalOverlay, { opacity: remindersModalOpacity }]}> 
+          <Animated.View style={[styles.modalContent, { transform: [{ scale: remindersModalScale }] }]}> 
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Rappels intelligents</Text>
+              <TouchableOpacity onPress={closeRemindersModal}>
+                <X color="#6b7280" size={24} strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+            {selectedTaskForReminders && (
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ fontWeight: 'bold', fontSize: 16 }}>{selectedTaskForReminders.title}</Text>
+                <Text style={{ color: '#6b7280', fontSize: 14 }}>
+                  {selectedTaskForReminders.startTime} - {selectedTaskForReminders.endTime} | {selectedTaskForReminders.packages} colis | {selectedTaskForReminders.teamSize} pers.
+                </Text>
+                {workloadAnalysis && (
+                  <Text style={{ color: '#8b5cf6', fontSize: 13, marginTop: 4 }}>
+                    Charge moyenne: {Math.round(workloadAnalysis.averageLoadPerPerson)} colis/pers. | Suggestion équipe: {workloadAnalysis.suggestedTeamSize}
+                  </Text>
+                )}
+              </View>
+            )}
+            <ScrollView style={{ maxHeight: 300 }}>
+              {taskReminders.length === 0 ? (
+                <Text style={{ color: '#9ca3af', textAlign: 'center', marginVertical: 24 }}>Aucun rappel intelligent généré pour cette tâche.</Text>
+              ) : (
+                taskReminders.map(reminder => (
+                  <View key={reminder.id} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, backgroundColor: getReminderColor(reminder.type) + '22', borderRadius: 8, padding: 10 }}>
+                    <Text style={{ fontSize: 22, marginRight: 10 }}>{getReminderIcon(reminder.type)}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: 'bold', color: getReminderColor(reminder.type) }}>{reminder.message}</Text>
+                      <Text style={{ color: '#6b7280', fontSize: 13 }}>À {reminder.reminderTime} le {reminder.reminderDate}</Text>
+                      {reminder.type === 'efficiency_alert' && reminder.suggestedTeamSize && (
+                        <Text style={{ color: '#f59e0b', fontSize: 12 }}>Suggestion: équipe de {reminder.suggestedTeamSize} personnes</Text>
+                      )}
+                    </View>
+                    <Switch
+                      value={reminder.isEnabled}
+                      onValueChange={v => toggleReminder(reminder.id, v)}
+                      trackColor={{ false: '#ef4444', true: '#10b981' }}
+                      thumbColor={reminder.isEnabled ? '#fff' : '#fff'}
+                    />
+                    <TouchableOpacity onPress={() => deleteReminder(reminder.id)} style={{ marginLeft: 8 }}>
+                      <Trash2 color="#ef4444" size={18} strokeWidth={2} />
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 }}>
+              <TouchableOpacity style={[styles.modalButton, { marginRight: 8 }]} onPress={regenerateReminders}>
+                <Text style={styles.modalButtonText}>Régénérer</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalButton, styles.primaryButton]} onPress={closeRemindersModal}>
+                <Text style={styles.primaryButtonText}>Fermer</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </Animated.View>
       </Modal>
       </SafeAreaView>
     </GestureHandlerRootView>
@@ -2872,41 +3147,8 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginBottom: 8,
   },
-  todayBadge: {
-    backgroundColor: '#10b981',
-    borderRadius: 12,
-    padding: 4,
-    marginLeft: 8,
-  },
-  tomorrowBadge: {
-    backgroundColor: '#10b981',
-    borderRadius: 12,
-    padding: 4,
-    marginLeft: 8,
-  },
-  dateList: {
-    maxHeight: 200,
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
-  },
-  dateOption: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    alignItems: 'center',
-  },
-  dateOptionText: {
-    fontSize: 16,
-    color: '#1a1a1a',
-    fontWeight: '500',
-  },
-  selectedDateOption: {
-    backgroundColor: '#3b82f6',
-  },
-  selectedDateText: {
-    color: '#ffffff',
-    fontWeight: '600',
-  },
+
+
   switchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3387,6 +3629,15 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   completeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  reminderButton: {
     width: 32,
     height: 32,
     borderRadius: 16,

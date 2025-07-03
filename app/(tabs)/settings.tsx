@@ -94,7 +94,7 @@ export default function SettingsTab() {
           <View style={styles.sectionHeader}>
             <Bell color="#3b82f6" size={24} strokeWidth={2} />
             <Text style={styles.sectionTitle}>Notifications</Text>
-          </View>
+            </View>
 
           {/* Task Reminders */}
           <View style={styles.settingItem}>
@@ -132,7 +132,7 @@ export default function SettingsTab() {
               trackColor={{ false: '#e5e7eb', true: '#3b82f6' }}
               thumbColor={localSettings.conflictAlerts ? '#ffffff' : '#ffffff'}
             />
-          </View>
+        </View>
 
           {/* Employee Updates */}
           <View style={styles.settingItem}>

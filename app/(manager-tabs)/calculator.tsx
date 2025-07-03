@@ -19,6 +19,7 @@ import { Calculator, Clock, Package, Users, Plus, Minus, TriangleAlert as AlertT
 import { router, useFocusEffect } from 'expo-router';
 import { useNotifications } from '../../hooks/useNotifications';
 import * as Notifications from 'expo-notifications';
+import DatePickerCalendar from '../../components/DatePickerCalendar';
 
 interface TeamMember {
   id: number;
@@ -53,9 +54,7 @@ export default function JobCalculatorTab() {
   const { scheduleTaskReminder, sendConflictAlert, sendImmediateNotification } = useNotifications();
   const [packages, setPackages] = useState('');
   const [paletteCondition, setPaletteCondition] = useState(true); // true = good, false = bad
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([
-    { id: 1, name: 'Membre principal' }
-  ]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -120,7 +119,7 @@ export default function JobCalculatorTab() {
     }
   };
 
-  // Vérifier si un employé est déjà assigné à une tâche qui se chevauche
+  // Vérifier si un employé est déjà assigné à une tâche (occupé ou en conflit)
   const isEmployeeAssigned = async (employeeId: number) => {
     try {
       const existingTasksString = await AsyncStorage.getItem('scheduledTasks');
@@ -167,15 +166,23 @@ export default function JobCalculatorTab() {
         // Vérifier si l'employé est dans cette tâche
         const isInTask = task.teamMembers && task.teamMembers.includes(employeeId);
         
-        // Pour les anciennes tâches sans teamMembers, on considère que tous les employés sont assignés
-        // car on ne peut pas savoir qui était assigné
+        // Ne pas considérer les anciennes tâches sans teamMembers comme des conflits
+        // car on ne peut pas savoir qui était assigné et on veut permettre l'assignation
         const isLegacyTask = !task.teamMembers;
         
         // Ne pas considérer comme conflit si c'est la même tâche (même heure de début)
         const isSameTask = existingStart === newTaskStart;
         
-        if (hasConflict && (isInTask || isLegacyTask) && !isSameTask) {
+        // Vérifier les conflits pour les tâches avec des employés explicitement assignés
+        if (hasConflict && isInTask && !isSameTask) {
           console.log(`Employee ${employeeId} is assigned to conflicting task:`, task.title);
+          return true;
+        }
+        
+        // Vérifier si l'employé est simplement assigné à une tâche (même sans conflit temporel)
+        // pour éviter qu'il soit assigné à plusieurs tâches
+        if (isInTask && !isSameTask) {
+          console.log(`Employee ${employeeId} is already assigned to task:`, task.title);
           return true;
         }
       }
@@ -395,31 +402,20 @@ export default function JobCalculatorTab() {
       const selectedDateString = selectedDate.toISOString().split('T')[0];
       const tasksOnSameDate = existingTasks.filter((task: any) => task.date === selectedDateString);
       
-      // Calculer le nombre d'employés déjà assignés à des tâches qui se chevauchent
+      // Calculer le nombre d'employés déjà assignés à des tâches
       let assignedEmployees = 0;
       
       const newTaskStart = selectedStartTime;
       const newTaskEnd = calculateEndTime(selectedStartTime, timeCalculation.totalTime);
       
       tasksOnSameDate.forEach((task: any) => {
-        const existingStart = task.startTime;
-        const existingEnd = task.endTime;
-        
-        // Convertir les heures en minutes pour faciliter la comparaison
-        const newStartMinutes = parseInt(newTaskStart.split(':')[0]) * 60 + parseInt(newTaskStart.split(':')[1]);
-        const newEndMinutes = parseInt(newTaskEnd.split(':')[0]) * 60 + parseInt(newTaskEnd.split(':')[1]);
-        const existingStartMinutes = parseInt(existingStart.split(':')[0]) * 60 + parseInt(existingStart.split(':')[1]);
-        const existingEndMinutes = parseInt(existingEnd.split(':')[0]) * 60 + parseInt(existingEnd.split(':')[1]);
-        
-        // Vérifier si les plages horaires se chevauchent
-        const hasConflict = (
-          (newStartMinutes >= existingStartMinutes && newStartMinutes < existingEndMinutes) ||
-          (newEndMinutes > existingStartMinutes && newEndMinutes <= existingEndMinutes) ||
-          (newStartMinutes <= existingStartMinutes && newEndMinutes >= existingEndMinutes)
-        );
-        
-        if (hasConflict) {
-          assignedEmployees += task.teamSize || 1;
+        // Pour les nouvelles tâches avec teamMembers, compter les employés explicitement assignés
+        if (task.teamMembers && task.teamMembers.length > 0) {
+          assignedEmployees += task.teamMembers.length;
+        } else {
+          // Pour les anciennes tâches sans teamMembers, ne pas les compter
+          // car on ne peut pas savoir qui était assigné et on veut permettre l'assignation
+          console.log('Skipping legacy task without teamMembers:', task.title);
         }
       });
       
@@ -594,18 +590,7 @@ export default function JobCalculatorTab() {
     });
   };
 
-  const generateDateOptions = () => {
-    const dates = [];
-    const today = new Date();
-    
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
-      dates.push(date);
-    }
-    
-    return dates;
-  };
+
 
   const calculateEndTime = (startTime: string, durationSeconds: number) => {
     const [hours, minutes] = startTime.split(':').map(Number);
@@ -880,7 +865,7 @@ export default function JobCalculatorTab() {
   const resetForm = () => {
     setPackages('');
     setPaletteCondition(true);
-    setTeamMembers([{ id: 1, name: 'Membre principal' }]);
+    setTeamMembers([]);
     setSelectedDate(new Date());
     setSelectedStartTime('05:00');
     setShowTaskModal(false);
@@ -1330,49 +1315,15 @@ export default function JobCalculatorTab() {
         </View>
       </ScrollView>
 
-      {/* Date Picker Modal */}
-      <Modal
+      {/* Interactive Calendar Date Picker */}
+      <DatePickerCalendar
         visible={showDatePicker}
-        transparent={true}
-        animationType="none"
-        onRequestClose={() => setShowDatePicker(false)}
-      >
-        <Animated.View style={[styles.modalOverlay, { opacity: fadeAnim }]}>
-          <View style={styles.datePickerModal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sélectionner une date</Text>
-              <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                <X color="#6b7280" size={24} strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={styles.dateList}>
-              {generateDateOptions().map((date, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.dateOption,
-                    selectedDate.toDateString() === date.toDateString() && styles.selectedDateOption
-                  ]}
-                  onPress={() => {
-                    setSelectedDate(date);
-                    setShowDatePicker(false);
-                  }}
-                >
-                  <Text style={[
-                    styles.dateOptionText,
-                    selectedDate.toDateString() === date.toDateString() && styles.selectedDateText
-                  ]}>
-                    {formatDate(date)}
-                  </Text>
-                  {index === 0 && <Text style={styles.todayBadge}>Aujourd'hui</Text>}
-                  {index === 1 && <Text style={styles.tomorrowBadge}>Demain</Text>}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </Animated.View>
-      </Modal>
+        onClose={() => setShowDatePicker(false)}
+        onDateSelect={(date) => setSelectedDate(date)}
+        selectedDate={selectedDate}
+        minDate={new Date()}
+        maxDate={new Date(Date.now() + 84 * 24 * 60 * 60 * 1000)} // 12 weeks from now
+      />
 
       {/* Task Confirmation Modal */}
       <Modal
@@ -2113,68 +2064,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
   },
-  datePickerModal: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 24,
-    width: '100%',
-    maxWidth: 400,
-    maxHeight: '70%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
-  },
-  dateList: {
-    maxHeight: 300,
-  },
-  dateOption: {
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 8,
-    backgroundColor: '#f8fafc',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  selectedDateOption: {
-    backgroundColor: '#3b82f6',
-  },
-  dateOptionText: {
-    fontSize: 16,
-    color: '#1a1a1a',
-    fontWeight: '500',
-    textTransform: 'capitalize',
-  },
-  selectedDateText: {
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  todayBadge: {
-    backgroundColor: '#10b981',
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  tomorrowBadge: {
-    backgroundColor: '#f59e0b',
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
+
   taskModal: {
     backgroundColor: '#ffffff',
     borderRadius: 16,

@@ -15,6 +15,7 @@ import {
   Bell,
   ChevronRight 
 } from 'lucide-react-native';
+import FutureTasksCalendar from '../../components/FutureTasksCalendar';
 
 export default function HomeTab() {
   return (
@@ -85,6 +86,15 @@ export default function HomeTab() {
             </View>
             <ChevronRight color="#6b7280" size={20} strokeWidth={2} />
           </TouchableOpacity>
+        </View>
+
+        {/* Tâches à venir */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Tâches à venir</Text>
+          <Text style={styles.sectionSubtitle}>Planifiez vos tâches pour les semaines et mois à venir</Text>
+          <View style={styles.calendarContainer}>
+            <FutureTasksCalendar />
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -167,6 +177,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1a1a1a',
     marginBottom: 16,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 16,
+  },
+  calendarContainer: {
+    height: 500,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   actionCard: {
     backgroundColor: '#ffffff',
