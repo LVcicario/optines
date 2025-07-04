@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,9 @@ import {
   Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { TrendingUp, Users, Calendar, Calculator, Clock, CircleCheck as CheckCircle, TriangleAlert as AlertTriangle, Package, Target, Bell, X } from 'lucide-react-native';
+import { TrendingUp, Users, Calendar, Calculator, Clock, CircleCheck as CheckCircle, TriangleAlert as AlertTriangle, Package, Target, Bell, X, Check } from 'lucide-react-native';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -42,40 +43,110 @@ export default function ManagerHomeTab() {
     }
   ]);
 
-  const quickStats = [
-    {
-      icon: Package,
-      value: '342',
-      label: 'Colis traités',
-      color: '#3b82f6',
-      target: '400',
-      percentage: 85
-    },
-    {
-      icon: Users,
-      value: '6',
-      label: 'Équipiers actifs',
-      color: '#10b981',
-      target: '8',
-      percentage: 75
-    },
-    {
-      icon: Clock,
-      value: '2h15',
-      label: 'Temps restant',
-      color: '#f59e0b',
-      target: '8h',
-      percentage: 72
-    },
-    {
-      icon: Target,
-      value: '92%',
-      label: 'Performance',
-      color: '#8b5cf6',
-      target: '100%',
-      percentage: 92
-    }
-  ];
+  // --- Ajout pour stats dynamiques ---
+  const [stats, setStats] = useState({
+    treatedPackages: 0,
+    activeTeamMembers: 0,
+    remainingTime: '0h00',
+    performance: 0,
+    treatedTasks: 0,
+    totalTasks: 0,
+  });
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [refreshFlag, setRefreshFlag] = useState(false);
+  const [todayPlannedTasks, setTodayPlannedTasks] = useState([]);
+  const [treatedPackagesToday, setTreatedPackagesToday] = useState(0);
+  const [todayDate, setTodayDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Charger les tâches du jour depuis AsyncStorage
+  useEffect(() => {
+    const loadTodayTasks = async () => {
+      const tasksString = await AsyncStorage.getItem('scheduledTasks');
+      const tasks = tasksString ? JSON.parse(tasksString) : [];
+      const today = new Date().toISOString().split('T')[0];
+      const todayTasks = tasks.filter((t) => t.date === today && !(t.isCompleted || t.status === 'completed'));
+      setTodayPlannedTasks(todayTasks);
+    };
+    loadTodayTasks();
+  }, [refreshFlag]);
+
+  // Charger le compteur de colis traités du jour
+  useEffect(() => {
+    const loadTreatedPackages = async () => {
+      const today = new Date().toISOString().split('T')[0];
+      setTodayDate(today);
+      const stored = await AsyncStorage.getItem('treatedPackages_' + today);
+      setTreatedPackagesToday(stored ? parseInt(stored, 10) : 0);
+    };
+    loadTreatedPackages();
+  }, [refreshFlag]);
+
+  useEffect(() => {
+    const loadStats = async () => {
+      setLoadingStats(true);
+      try {
+        const tasksString = await AsyncStorage.getItem('scheduledTasks');
+        const tasks = tasksString ? JSON.parse(tasksString) : [];
+        const today = new Date().toISOString().split('T')[0];
+        const todayTasks = tasks.filter((t) => t.date === today);
+        const treatedTasks = todayTasks.filter((t) => t.isCompleted || t.status === 'completed');
+        // const treatedPackages = treatedTasks.reduce((sum, t) => sum + (t.packages || 0), 0);
+        const activeTeamMembers = todayTasks.filter((t) => !(t.isCompleted || t.status === 'completed')).reduce((sum, t) => sum + (t.teamSize || 0), 0);
+        let totalMinutes = 0;
+        const now = new Date();
+        todayTasks.forEach((t) => {
+          const [startHour, startMin] = (t.startTime || '00:00').split(':').map(Number);
+          const [endHour, endMin] = (t.endTime || '00:00').split(':').map(Number);
+          const start = new Date(t.date + 'T' + t.startTime);
+          const end = new Date(t.date + 'T' + t.endTime);
+          if (now < start) {
+            totalMinutes += Math.max(0, (end - start) / 60000);
+          } else if (now >= start && now < end) {
+            totalMinutes += Math.max(0, (end - now) / 60000);
+          }
+        });
+        const hours = Math.floor(totalMinutes / 60);
+        const mins = Math.round(totalMinutes % 60);
+        const remainingTime = `${hours}h${mins.toString().padStart(2, '0')}`;
+        const totalTasks = todayTasks.length;
+        const performance = totalTasks > 0 ? Math.round((treatedTasks.length / totalTasks) * 100) : 0;
+        setStats({
+          treatedPackages: treatedPackagesToday,
+          activeTeamMembers,
+          remainingTime,
+          performance,
+          treatedTasks: treatedTasks.length,
+          totalTasks,
+        });
+      } catch (e) {
+        setStats({
+          treatedPackages: treatedPackagesToday,
+          activeTeamMembers: 0,
+          remainingTime: '0h00',
+          performance: 0,
+          treatedTasks: 0,
+          totalTasks: 0,
+        });
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+    loadStats();
+  }, [refreshFlag, treatedPackagesToday]);
+
+  // Remise à zéro automatique du compteur chaque jour
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const now = new Date().toISOString().split('T')[0];
+      if (now !== todayDate) {
+        await AsyncStorage.setItem('treatedPackages_' + now, '0');
+        setTreatedPackagesToday(0);
+        setTodayDate(now);
+        setRefreshFlag((f) => !f);
+      }
+    }, 60000); // vérifie chaque minute
+    return () => clearInterval(interval);
+  }, [todayDate]);
 
   const todayTasks = [
     {
@@ -130,6 +201,45 @@ export default function ManagerHomeTab() {
     Alert.alert('Notification', 'Notification marquée comme lue');
   };
 
+  // Fonction pour marquer une tâche comme terminée
+  const markTaskAsCompleted = async (taskId) => {
+    const tasksString = await AsyncStorage.getItem('scheduledTasks');
+    let tasks = tasksString ? JSON.parse(tasksString) : [];
+    let updated = false;
+    let addedPackages = 0;
+    let taskAlreadyCompleted = false;
+    tasks = tasks.map((t) => {
+      if (t.id === taskId) {
+        if (t.isCompleted || t.status === 'completed') {
+          taskAlreadyCompleted = true;
+          return t;
+        }
+        updated = true;
+        addedPackages = t.packages || 0;
+        return { ...t, isCompleted: true, status: 'completed' };
+      }
+      return t;
+    });
+    await AsyncStorage.setItem('scheduledTasks', JSON.stringify(tasks));
+    // Incrémenter le compteur de colis traités du jour si la tâche vient d'être terminée et n'a pas déjà été comptée
+    if (updated && addedPackages > 0 && !taskAlreadyCompleted) {
+      const today = new Date().toISOString().split('T')[0];
+      const key = 'treatedPackages_' + today;
+      const stored = await AsyncStorage.getItem(key);
+      const current = stored ? parseInt(stored, 10) : 0;
+      const newValue = current + addedPackages;
+      await AsyncStorage.setItem(key, String(newValue));
+      setTreatedPackagesToday(newValue);
+    } else {
+      // Recharge le compteur même si rien n'a été ajouté pour garantir l'affichage
+      const today = new Date().toISOString().split('T')[0];
+      const key = 'treatedPackages_' + today;
+      const stored = await AsyncStorage.getItem(key);
+      setTreatedPackagesToday(stored ? parseInt(stored, 10) : 0);
+    }
+    setRefreshFlag((f) => !f);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -153,63 +263,81 @@ export default function ManagerHomeTab() {
           </TouchableOpacity>
         </View>
 
-        {/* Quick Stats */}
+        {/* Quick Stats dynamiques */}
         <View style={styles.statsContainer}>
-          {quickStats.map((stat, index) => (
-            <TouchableOpacity key={index} style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: `${stat.color}20` }]}>
-                <stat.icon color={stat.color} size={20} strokeWidth={2} />
+          <TouchableOpacity style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: '#3b82f620' }]}> <Package color="#3b82f6" size={20} strokeWidth={2} /> </View>
+            <Text style={styles.statValue}>{loadingStats ? '...' : stats.treatedPackages}</Text>
+            <Text style={styles.statLabel}>Colis traités</Text>
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: stats.totalTasks > 0 ? `${Math.round((stats.treatedTasks / stats.totalTasks) * 100)}%` : '0%', backgroundColor: '#3b82f6' }]} />
               </View>
-              <Text style={styles.statValue}>{stat.value}</Text>
-              <Text style={styles.statLabel}>{stat.label}</Text>
-              <View style={styles.progressContainer}>
-                <View style={styles.progressBar}>
-                  <View 
-                    style={[
-                      styles.progressFill, 
-                      { width: `${stat.percentage}%`, backgroundColor: stat.color }
-                    ]} 
-                  />
-                </View>
-                <Text style={styles.progressText}>{stat.percentage}%</Text>
+              <Text style={styles.progressText}>{stats.totalTasks > 0 ? Math.round((stats.treatedTasks / stats.totalTasks) * 100) : 0}%</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: '#10b98120' }]}> <Users color="#10b981" size={20} strokeWidth={2} /> </View>
+            <Text style={styles.statValue}>{loadingStats ? '...' : stats.activeTeamMembers}</Text>
+            <Text style={styles.statLabel}>Équipiers actifs</Text>
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: stats.totalTasks > 0 ? `${Math.round((stats.activeTeamMembers / (stats.totalTasks * 2)) * 100)}` + '%' : '0%', backgroundColor: '#10b981' }]} />
               </View>
-            </TouchableOpacity>
-          ))}
+              <Text style={styles.progressText}>{stats.totalTasks > 0 ? Math.round((stats.activeTeamMembers / (stats.totalTasks * 2)) * 100) : 0}%</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: '#f59e0b20' }]}> <Clock color="#f59e0b" size={20} strokeWidth={2} /> </View>
+            <Text style={styles.statValue}>{loadingStats ? '...' : stats.remainingTime}</Text>
+            <Text style={styles.statLabel}>Temps restant</Text>
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: stats.totalTasks > 0 ? `${100 - stats.performance}%` : '0%', backgroundColor: '#f59e0b' }]} />
+              </View>
+              <Text style={styles.progressText}>{stats.totalTasks > 0 ? 100 - stats.performance : 0}%</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: '#8b5cf620' }]}> <Target color="#8b5cf6" size={20} strokeWidth={2} /> </View>
+            <Text style={styles.statValue}>{loadingStats ? '...' : stats.performance + '%'}</Text>
+            <Text style={styles.statLabel}>Performance</Text>
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${stats.performance}%`, backgroundColor: '#8b5cf6' }]} />
+              </View>
+              <Text style={styles.progressText}>{stats.performance}%</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
-        {/* Today's Tasks */}
+        {/* Today's Tasks dynamiques */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tâches du jour</Text>
-          
-          {todayTasks.map((task) => (
-            <TouchableOpacity key={task.id} style={styles.taskCard}>
+          {todayPlannedTasks.length === 0 && (
+            <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 16 }}>Aucune tâche planifiée à terminer.</Text>
+          )}
+          {todayPlannedTasks.map((task) => (
+            <View key={task.id} style={styles.taskCard}>
               <View style={styles.taskHeader}>
                 <Text style={styles.taskTitle}>{task.title}</Text>
                 <View style={styles.taskStatus}>
-                  {task.status === 'completed' && <CheckCircle color="#10b981" size={20} strokeWidth={2} />}
                   {task.status === 'in-progress' && <Clock color="#f59e0b" size={20} strokeWidth={2} />}
                   {task.status === 'pending' && <Clock color="#6b7280" size={20} strokeWidth={2} />}
                 </View>
               </View>
-              
-              <Text style={styles.taskTime}>{task.time}</Text>
-              
+              <Text style={styles.taskTime}>{task.startTime} - {task.endTime}</Text>
               <View style={styles.taskProgressContainer}>
                 <View style={styles.taskProgressBar}>
-                  <View 
-                    style={[
-                      styles.taskProgressFill, 
-                      { 
-                        width: `${task.progress}%`,
-                        backgroundColor: task.status === 'completed' ? '#10b981' : 
-                                       task.status === 'in-progress' ? '#3b82f6' : '#e5e7eb'
-                      }
-                    ]} 
-                  />
+                  <View style={[styles.taskProgressFill, { width: `${task.progress || 0}%`, backgroundColor: task.status === 'in-progress' ? '#3b82f6' : '#e5e7eb' }]} />
                 </View>
-                <Text style={styles.taskProgressText}>{task.progress}%</Text>
+                <Text style={styles.taskProgressText}>{task.progress || 0}%</Text>
               </View>
-            </TouchableOpacity>
+              <TouchableOpacity style={styles.finishButton} onPress={() => markTaskAsCompleted(task.id)}>
+                <Check color="#fff" size={18} />
+                <Text style={styles.finishButtonText}>Marquer comme fini</Text>
+              </TouchableOpacity>
+            </View>
           ))}
         </View>
 
@@ -691,4 +819,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#ffffff',
   },
+  finishButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#10b981', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 16, marginTop: 12, alignSelf: 'flex-end' },
+  finishButtonText: { color: '#fff', fontWeight: '600', marginLeft: 8 }
 });

@@ -16,10 +16,11 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Calculator, Clock, Package, Users, Plus, Minus, TriangleAlert as AlertTriangle, Calendar, X } from 'lucide-react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useIsFocused } from 'expo-router';
 import { useNotifications } from '../../hooks/useNotifications';
 import * as Notifications from 'expo-notifications';
 import DatePickerCalendar from '../../components/DatePickerCalendar';
+import { Swipeable } from 'react-native-gesture-handler';
 
 interface TeamMember {
   id: number;
@@ -74,12 +75,6 @@ export default function JobCalculatorTab() {
   const [allConflicts, setAllConflicts] = useState<Array<{title: string, startTime: string, endTime: string, type?: string}>>([]);
   const [pendingTask, setPendingTask] = useState<Task | null>(null);
 
-  // État pour la notification d'heure hors plage
-  const [showTimeWarning, setShowTimeWarning] = useState(false);
-  
-  // État pour la barre de progression du cooldown
-  const [cooldownProgress, setCooldownProgress] = useState(0);
-
   // États pour le menu de sélection des employés
   const [showEmployeeSelector, setShowEmployeeSelector] = useState(false);
   const [allEmployees, setAllEmployees] = useState<TeamMember[]>([]);
@@ -89,17 +84,25 @@ export default function JobCalculatorTab() {
   // Animation pour le modal de date
   const fadeAnim = useRef(new Animated.Value(0)).current;
   
-  // Animation pour la notification d'heure hors plage
-  const notificationFadeAnim = useRef(new Animated.Value(0)).current;
-
   // Nombre d'employés de l'équipe rayon (basé sur l'équipe définie dans team.tsx)
   const totalEmployees = 4; // Nombre total d'employés dans l'équipe rayon
   const [availableEmployees, setAvailableEmployees] = useState(totalEmployees); // Employés réellement disponibles
   const [totalEmployeesDynamic, setTotalEmployeesDynamic] = useState(totalEmployees); // Nombre total d'employés dynamique
 
+  const isFocused = typeof useIsFocused === 'function' ? useIsFocused() : true;
+  const [totalColisJour, setTotalColisJour] = useState(0);
+  const [colisTraitesJour, setColisTraitesJour] = useState(0);
+  const [pourcentageColisTraites, setPourcentageColisTraites] = useState(0);
+
+  const [tasksForSelectedDate, setTasksForSelectedDate] = useState([]);
+
+  const [showDevTools, setShowDevTools] = useState(false);
+
   // Charger le nombre total d'employés depuis AsyncStorage
   useEffect(() => {
     loadTotalEmployees();
+    // Ajout : calculer les stats au chargement initial
+    calculerStatsColis();
   }, []);
 
   // Charger tous les employés de l'équipe rayon
@@ -226,47 +229,13 @@ export default function JobCalculatorTab() {
   }, [workingHours]);
 
   // Vérifier si l'heure sélectionnée est hors des horaires de travail
-  const checkTimeInWorkingHours = () => {
-    const taskStartMinutes = parseInt(selectedStartTime.split(':')[0]) * 60 + parseInt(selectedStartTime.split(':')[1]);
-    const workingStartMinutes = parseInt(workingHours.start.split(':')[0]) * 60 + parseInt(workingHours.start.split(':')[1]);
-    const workingEndMinutes = parseInt(workingHours.end.split(':')[0]) * 60 + parseInt(workingHours.end.split(':')[1]);
-    
-    const isOutOfRange = taskStartMinutes < workingStartMinutes || taskStartMinutes > workingEndMinutes;
-    
-    console.log('Time warning check:', {
-      selectedStartTime,
-      taskStartMinutes,
-      workingHours,
-      workingStartMinutes,
-      workingEndMinutes,
-      isOutOfRange,
-      showTimeWarning
-    });
-    
-    setShowTimeWarning(isOutOfRange);
-  };
+  // Fonction supprimée : checkTimeInWorkingHours et useEffect associé
 
   // Surveiller les changements d'heure et d'horaires de travail
-  useEffect(() => {
-    checkTimeInWorkingHours();
-  }, [selectedStartTime, workingHours]);
+  // useEffect supprimé : checkTimeInWorkingHours
 
   // Animation de la notification
-  useEffect(() => {
-    if (showTimeWarning) {
-      Animated.timing(notificationFadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(notificationFadeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [showTimeWarning, notificationFadeAnim]);
+  // Bloc supprimé : useEffect avec showTimeWarning et notificationFadeAnim
 
   const loadTotalEmployees = async () => {
     try {
@@ -790,13 +759,18 @@ export default function JobCalculatorTab() {
     
     if (taskStartMinutes < workingStartMinutes || taskStartMinutes > workingEndMinutes) {
       Alert.alert(
-        'Heure hors plage', 
+        'Heure hors plage',
         `La tâche doit commencer entre ${workingHours.start} et ${workingHours.end} selon le planning.`
       );
       return;
     }
 
     const endTime = calculateEndTime(selectedStartTime, timeCalculation.totalTime);
+    
+    // Log de débogage pour la date
+    console.log('📅 Date sélectionnée:', selectedDate);
+    console.log('📅 Date formatée:', selectedDate.toISOString().split('T')[0]);
+    console.log('📦 Nombre de colis:', packages);
     
     const task: Task = {
       id: Date.now().toString(),
@@ -811,11 +785,16 @@ export default function JobCalculatorTab() {
       managerInitials: currentManager.initials,
       teamMembers: teamMembers.map(member => member.id)
     };
+    
+    console.log('🎯 Tâche créée:', task);
 
     // Vérifier les conflits de planning (mais ne pas bloquer)
+    console.log('🔍 Vérification des conflits...');
     const hasConflict = await checkPlanningConflicts();
+    console.log('⚠️ Conflit détecté:', hasConflict);
     
     if (hasConflict) {
+      console.log('🚫 Tâche mise en attente à cause d\'un conflit');
       // Envoyer une notification d'alerte de conflit
       await sendConflictAlert({
         title: task.title,
@@ -827,17 +806,22 @@ export default function JobCalculatorTab() {
       return;
     }
 
+    console.log('✅ Pas de conflit, sauvegarde de la tâche...');
     // Pas de conflit, ajouter directement la tâche
     await saveTask(task);
   };
 
   const saveTask = async (task: Task) => {
     try {
+      console.log('💾 SaveTask - Début de sauvegarde:', task);
+      
       // Store task in AsyncStorage (in a real app, this would be sent to a backend)
       const existingTasksString = await AsyncStorage.getItem('scheduledTasks');
       const existingTasks = existingTasksString ? JSON.parse(existingTasksString) : [];
       existingTasks.push(task);
       await AsyncStorage.setItem('scheduledTasks', JSON.stringify(existingTasks));
+
+      console.log('✅ Tâche sauvegardée, total tâches:', existingTasks.length);
 
       // Force a small delay to ensure storage is updated
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -850,6 +834,13 @@ export default function JobCalculatorTab() {
       
       // Recalculer les employés disponibles après avoir ajouté la tâche
       calculateAvailableEmployees();
+      
+      // Ajout : recalculer les stats avec un délai pour s'assurer que AsyncStorage est bien mis à jour
+      setTimeout(() => {
+        console.log('🔄 Recalcul des stats après sauvegarde');
+        calculerStatsColis();
+      }, 200);
+      
     } catch (error) {
       console.error('Error saving task:', error);
       Alert.alert('Erreur', 'Impossible de sauvegarder la tâche');
@@ -876,8 +867,6 @@ export default function JobCalculatorTab() {
     setPendingTask(null);
     setConflictDetails(null);
     setAllConflicts([]);
-    setShowTimeWarning(false);
-    setCooldownProgress(0);
     setTempSelectedHour('05');
     setTempSelectedMinute('00');
   };
@@ -929,8 +918,6 @@ export default function JobCalculatorTab() {
     setShowTimePicker(true);
   };
 
-  console.log('Component render - showTimeWarning:', showTimeWarning, 'selectedStartTime:', selectedStartTime, 'workingHours:', workingHours);
-
   // Recharger les employés assignés quand la date, l'heure ou les paramètres de la tâche changent
   useEffect(() => {
     if (showEmployeeSelector) {
@@ -945,34 +932,97 @@ export default function JobCalculatorTab() {
     }
   }, [teamMembers, showEmployeeSelector]);
 
+  // Fonction pour charger et calculer les colis du jour
+  const calculerStatsColis = async () => {
+    try {
+      console.log('🔍 CalculerStatsColis - Début du calcul');
+      const tasksString = await AsyncStorage.getItem('scheduledTasks');
+      console.log('📦 Tâches stockées:', tasksString);
+      
+      const tasks = tasksString ? JSON.parse(tasksString) : [];
+      const selectedDateString = selectedDate.toISOString().split('T')[0];
+      console.log('📅 Date sélectionnée:', selectedDateString);
+      
+      const tasksForSelectedDate = tasks.filter((t: any) => t.date === selectedDateString);
+      console.log('📋 Tâches pour la date sélectionnée:', tasksForSelectedDate);
+      
+      const total = tasksForSelectedDate.reduce((sum: number, t: any) => sum + (t.packages || 0), 0);
+      const traites = tasksForSelectedDate.reduce((sum: number, t: any) => sum + (t.packages || 0), 0);
+      
+      console.log('📊 Résultats calcul:', { total, traites, pourcentage: total > 0 ? Math.round((traites / total) * 100) : 0 });
+      
+      setTotalColisJour(total);
+      setColisTraitesJour(traites);
+      setPourcentageColisTraites(total > 0 ? Math.round((traites / total) * 100) : 0);
+    } catch (e) {
+      console.error('❌ Erreur dans calculerStatsColis:', e);
+      setTotalColisJour(0);
+      setColisTraitesJour(0);
+      setPourcentageColisTraites(0);
+    }
+  };
+
+  // Charger au focus et après ajout de tâche
+  useEffect(() => {
+    if (isFocused) calculerStatsColis();
+  }, [isFocused]);
+
+  // Recalculer les stats quand la date sélectionnée change
+  useEffect(() => {
+    calculerStatsColis();
+  }, [selectedDate]);
+
+  // Charger les tâches planifiées du jour
+  const loadTasksForSelectedDate = async () => {
+    try {
+      const tasksString = await AsyncStorage.getItem('scheduledTasks');
+      const tasks = tasksString ? JSON.parse(tasksString) : [];
+      const selectedDateString = selectedDate.toISOString().split('T')[0];
+      const filtered = tasks.filter((t) => t.date === selectedDateString);
+      setTasksForSelectedDate(filtered);
+    } catch (e) {
+      setTasksForSelectedDate([]);
+    }
+  };
+
+  // Rafraîchir la liste quand la date ou une tâche change
+  useEffect(() => {
+    loadTasksForSelectedDate();
+  }, [selectedDate, showTaskModal]);
+
+  // Marquer une tâche comme traitée (ici, suppression immédiate)
+  const handleMarkTaskAsDone = async (taskId) => {
+    const tasksString = await AsyncStorage.getItem('scheduledTasks');
+    let tasks = tasksString ? JSON.parse(tasksString) : [];
+    tasks = tasks.filter(t => t.id !== taskId);
+    await AsyncStorage.setItem('scheduledTasks', JSON.stringify(tasks));
+    calculerStatsColis();
+    loadTasksForSelectedDate();
+  };
+
+  // Supprimer une tâche avec confirmation
+  const handleDeleteTask = (taskId) => {
+    Alert.alert(
+      "Supprimer la tâche",
+      "Es-tu sûr de vouloir supprimer cette tâche ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        { text: "Supprimer", style: "destructive", onPress: async () => {
+          const tasksString = await AsyncStorage.getItem('scheduledTasks');
+          let tasks = tasksString ? JSON.parse(tasksString) : [];
+          tasks = tasks.filter(t => t.id !== taskId);
+          await AsyncStorage.setItem('scheduledTasks', JSON.stringify(tasks));
+          calculerStatsColis();
+          loadTasksForSelectedDate();
+        }}
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Notification d'heure hors plage */}
-      <Animated.View 
-        style={[
-          styles.timeWarningContainer,
-          { opacity: notificationFadeAnim }
-        ]}
-        pointerEvents={showTimeWarning ? 'auto' : 'none'}
-      >
-        <View style={styles.timeWarningContent}>
-          <AlertTriangle color="#ef4444" size={20} strokeWidth={2} />
-          <Text style={styles.timeWarningText}>
-            L'heure sélectionnée ({selectedStartTime}) est hors des horaires de travail ({workingHours.start} - {workingHours.end})
-          </Text>
-        </View>
-        {/* Barre de progression du cooldown */}
-        <View style={styles.cooldownBarContainer}>
-          <View style={styles.cooldownBarBackground}>
-            <Animated.View 
-              style={[
-                styles.cooldownBarProgress,
-                { width: `${cooldownProgress * 100}%` }
-              ]}
-            />
-          </View>
-        </View>
-      </Animated.View>
+      {/* Bloc supprimé : Animated.View, showTimeWarning, notificationFadeAnim, cooldownProgress */}
       
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
@@ -1209,109 +1259,6 @@ export default function JobCalculatorTab() {
           <TouchableOpacity style={styles.secondaryButton}>
             <Text style={styles.secondaryButtonText}>Sauvegarder le calcul</Text>
           </TouchableOpacity>
-
-          {/* Bouton de test des notifications - À SUPPRIMER APRÈS TESTS */}
-          <TouchableOpacity 
-            style={[styles.saveButton, { backgroundColor: '#f59e0b', marginTop: 12 }]} 
-            onPress={() => {
-              sendImmediateNotification(
-                '🧪 Test de notification',
-                'Ceci est un test de notification immédiate !',
-                { type: 'test' }
-              );
-            }}
-          >
-            <Text style={styles.saveButtonText}>🧪 Tester Notification</Text>
-          </TouchableOpacity>
-
-          {/* Bouton de test des rappels - À SUPPRIMER APRÈS TESTS */}
-          <TouchableOpacity 
-            style={[styles.saveButton, { backgroundColor: '#10b981', marginTop: 8 }]} 
-            onPress={() => {
-              // Créer une tâche qui commence dans 30 secondes
-              const futureTime = new Date(Date.now() + 30000); // 30 secondes
-              const testTask = {
-                id: 'test-' + Date.now(),
-                title: 'Tâche de test',
-                date: futureTime.toISOString().split('T')[0],
-                startTime: futureTime.toTimeString().slice(0, 5),
-              };
-              
-              // Sur le web, simuler un délai au lieu de programmer une vraie notification
-              if (Platform.OS === 'web') {
-                Alert.alert('Test Web', 'Sur le web, les notifications programmées ne fonctionnent pas. Utilisez Expo Go sur mobile pour tester les vrais rappels !');
-                return;
-              }
-              
-              scheduleTaskReminder(testTask);
-              Alert.alert('Test', 'Rappel programmé pour dans 30 secondes !');
-            }}
-          >
-            <Text style={styles.saveButtonText}>⏰ Tester Rappel (30s)</Text>
-          </TouchableOpacity>
-
-          {/* Bouton de test avec délai simulé pour le web */}
-          <TouchableOpacity 
-            style={[styles.saveButton, { backgroundColor: '#8b5cf6', marginTop: 8 }]} 
-            onPress={() => {
-              Alert.alert('Test', 'Notification programmée pour dans 5 secondes !');
-              
-              setTimeout(() => {
-                sendImmediateNotification(
-                  '🕐 Rappel de tâche (Simulé)',
-                  'La tâche "Tâche de test" commence dans 5 secondes',
-                  { type: 'task_reminder', taskId: 'test-simulated' }
-                );
-              }, 5000); // 5 secondes
-            }}
-          >
-            <Text style={styles.saveButtonText}>⏰ Test Délai Simulé (5s)</Text>
-          </TouchableOpacity>
-
-          {/* Bouton de test des alertes de conflit */}
-          <TouchableOpacity 
-            style={[styles.saveButton, { backgroundColor: '#ef4444', marginTop: 8 }]} 
-            onPress={() => {
-              sendConflictAlert({
-                title: 'Tâche de test',
-                conflicts: [
-                  { title: 'Tâche existante', startTime: '10:00', endTime: '11:00' }
-                ]
-              });
-            }}
-          >
-            <Text style={styles.saveButtonText}>⚠️ Tester Alerte Conflit</Text>
-          </TouchableOpacity>
-
-          {/* Bouton de test direct pour 30 secondes */}
-          <TouchableOpacity 
-            style={[styles.saveButton, { backgroundColor: '#f59e0b', marginTop: 8 }]} 
-            onPress={() => {
-              // Sur le web, simuler un délai
-              if (Platform.OS === 'web') {
-                Alert.alert('Test Web', 'Sur le web, les notifications programmées ne fonctionnent pas. Utilisez Expo Go sur mobile pour tester les vrais rappels !');
-                return;
-              }
-              
-              // Programmer directement une notification pour dans 30 secondes
-              const futureDate = new Date(Date.now() + 30000);
-              Notifications.scheduleNotificationAsync({
-                content: {
-                  title: '🕐 Test Notification (30s)',
-                  body: 'Cette notification a été programmée pour dans 30 secondes !',
-                  sound: 'default',
-                },
-                trigger: {
-                  type: Notifications.SchedulableTriggerInputTypes.DATE,
-                  date: futureDate,
-                },
-              });
-              
-              Alert.alert('Test', 'Notification programmée pour dans 30 secondes !');
-            }}
-          >
-            <Text style={styles.saveButtonText}>⏰ Test Direct (30s)</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -1464,28 +1411,10 @@ export default function JobCalculatorTab() {
                   
                   // Vérifier si l'heure est hors plage
                   if (selectedMinutes < workingStartMinutes || selectedMinutes > workingEndMinutes) {
-                    // Afficher la notification temporairement sans fermer le sélecteur
-                    setShowTimeWarning(true);
-                    setCooldownProgress(0);
-                    
-                    // Animation de la barre de progression
-                    const duration = 3000; // 3 secondes
-                    const interval = 50; // Mise à jour toutes les 50ms
-                    const steps = duration / interval;
-                    let currentStep = 0;
-                    
-                    const progressInterval = setInterval(() => {
-                      currentStep++;
-                      const progress = currentStep / steps;
-                      setCooldownProgress(progress);
-                      
-                      if (currentStep >= steps) {
-                        clearInterval(progressInterval);
-                        setShowTimeWarning(false);
-                        setCooldownProgress(0);
-                      }
-                    }, interval);
-                    
+                    Alert.alert(
+                      'Heure hors plage',
+                      `L'heure sélectionnée est hors des horaires de travail (${workingHours.start} - ${workingHours.end})`
+                    );
                     return; // Ne pas confirmer l'heure
                   }
                   
@@ -1698,6 +1627,194 @@ export default function JobCalculatorTab() {
           </View>
         </View>
       </Modal>
+
+      {/* AJOUT : Liste des tâches planifiées du jour avec swipe */}
+      <View style={{ margin: 16 }}>
+        <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>
+          Tâches planifiées du jour
+        </Text>
+        {tasksForSelectedDate.length === 0 && (
+          <Text style={{ color: '#6b7280' }}>Aucune tâche planifiée pour ce jour.</Text>
+        )}
+        {tasksForSelectedDate.map((task) => (
+          <Swipeable
+            key={task.id}
+            renderLeftActions={() => (
+              <View style={{ backgroundColor: '#10b981', justifyContent: 'center', flex: 1 }}>
+                <Text style={{ color: 'white', padding: 20 }}>Traiter</Text>
+              </View>
+            )}
+            renderRightActions={() => (
+              <View style={{ backgroundColor: '#ef4444', justifyContent: 'center', flex: 1 }}>
+                <Text style={{ color: 'white', padding: 20 }}>Supprimer</Text>
+              </View>
+            )}
+            onSwipeableLeftOpen={() => handleMarkTaskAsDone(task.id)}
+            onSwipeableRightOpen={() => handleDeleteTask(task.id)}
+          >
+            <View style={{
+              backgroundColor: 'white',
+              borderRadius: 8,
+              padding: 16,
+              marginBottom: 8,
+              shadowColor: '#000',
+              shadowOpacity: 0.05,
+              shadowRadius: 4,
+              elevation: 2,
+            }}>
+              <Text style={{ fontWeight: 'bold' }}>{task.title}</Text>
+              <Text>Heure : {task.startTime} - {task.endTime}</Text>
+              <Text>Colis : {task.packages}</Text>
+              <Text>Équipe : {task.teamSize}</Text>
+            </View>
+          </Swipeable>
+        ))}
+      </View>
+
+      {/* Outils de développement (section dédiée, repliable, compacte) */}
+      <View style={{ margin: 16, marginTop: 16, padding: 8, backgroundColor: '#f3f4f6', borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start' }}>
+          <TouchableOpacity onPress={() => setShowDevTools(!showDevTools)} style={{ padding: 6, backgroundColor: '#e5e7eb', borderRadius: 6, marginRight: 8 }}>
+            <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>{showDevTools ? 'Masquer' : 'Afficher'}</Text>
+          </TouchableOpacity>
+          <Text style={{ fontWeight: 'bold', fontSize: 16, color: '#ef4444' }}>
+            Outils de développement
+          </Text>
+        </View>
+        {showDevTools && (
+          <>
+            {/* Bloc infos stats colis déplacé ici */}
+            <View style={{ backgroundColor: '#fff', borderRadius: 6, borderWidth: 1, borderColor: '#e5e7eb', padding: 8, marginTop: 12, marginBottom: 12 }}>
+              <Text style={{fontSize: 14, fontWeight: 'bold', color: '#1f2937'}}>Colis du {formatDate(selectedDate)} : {totalColisJour}</Text>
+              <Text style={{fontSize: 13, color: '#374151'}}>Colis traités : {colisTraitesJour} ({pourcentageColisTraites}%)</Text>
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <TouchableOpacity 
+                style={{backgroundColor: '#3b82f6', padding: 8, borderRadius: 6, marginBottom: 8, marginRight: 8}}
+                onPress={() => {
+                  console.log('🔄 Bouton de rafraîchissement cliqué');
+                  calculerStatsColis();
+                }}
+              >
+                <Text style={{color: 'white', fontSize: 12}}>�� Rafraîchir</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{backgroundColor: '#ef4444', padding: 8, borderRadius: 6, marginBottom: 8, marginRight: 8}}
+                onPress={async () => {
+                  console.log('🔍 Test AsyncStorage - Début');
+                  try {
+                    const tasksString = await AsyncStorage.getItem('scheduledTasks');
+                    console.log('📦 Contenu brut AsyncStorage:', tasksString);
+                    if (tasksString) {
+                      const tasks = JSON.parse(tasksString);
+                      console.log('📋 Toutes les tâches:', tasks);
+                      const today = new Date().toISOString().split('T')[0];
+                      console.log('📅 Date du jour pour comparaison:', today);
+                      tasks.forEach((t: any, index: number) => {
+                        console.log(`📋 Tâche ${index}:`, {
+                          date: t.date,
+                          packages: t.packages,
+                          title: t.title,
+                          isToday: t.date === today
+                        });
+                      });
+                    }
+                  } catch (e) {
+                    console.error('❌ Erreur test AsyncStorage:', e);
+                  }
+                }}
+              >
+                <Text style={{color: 'white', fontSize: 12}}>🔍 Debug</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{backgroundColor: '#f59e0b', padding: 8, borderRadius: 6, marginBottom: 8, marginRight: 8}} 
+                onPress={() => {
+                  sendImmediateNotification(
+                    '🧪 Test de notification',
+                    'Ceci est un test de notification immédiate !',
+                    { type: 'test' }
+                  );
+                }}
+              >
+                <Text style={{color: 'white', fontSize: 12}}>🧪 Tester Notification</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{backgroundColor: '#10b981', padding: 8, borderRadius: 6, marginBottom: 8, marginRight: 8}} 
+                onPress={() => {
+                  // Créer une tâche qui commence dans 30 secondes
+                  const futureTime = new Date(Date.now() + 30000); // 30 secondes
+                  const testTask = {
+                    id: 'test-' + Date.now(),
+                    title: 'Tâche de test',
+                    date: futureTime.toISOString().split('T')[0],
+                    startTime: futureTime.toTimeString().slice(0, 5),
+                  };
+                  if (Platform.OS === 'web') {
+                    Alert.alert('Test Web', 'Sur le web, les notifications programmées ne fonctionnent pas. Utilisez Expo Go sur mobile pour tester les vrais rappels !');
+                    return;
+                  }
+                  scheduleTaskReminder(testTask);
+                  Alert.alert('Test', 'Rappel programmé pour dans 30 secondes !');
+                }}
+              >
+                <Text style={{color: 'white', fontSize: 12}}>⏰ Tester Rappel (30s)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{backgroundColor: '#8b5cf6', padding: 8, borderRadius: 6, marginBottom: 8, marginRight: 8}} 
+                onPress={() => {
+                  Alert.alert('Test', 'Notification programmée pour dans 5 secondes !');
+                  setTimeout(() => {
+                    sendImmediateNotification(
+                      '🕐 Rappel de tâche (Simulé)',
+                      'La tâche "Tâche de test" commence dans 5 secondes',
+                      { type: 'task_reminder', taskId: 'test-simulated' }
+                    );
+                  }, 5000);
+                }}
+              >
+                <Text style={{color: 'white', fontSize: 12}}>⏰ Test Délai Simulé (5s)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{backgroundColor: '#ef4444', padding: 8, borderRadius: 6, marginBottom: 8, marginRight: 8}} 
+                onPress={() => {
+                  sendConflictAlert({
+                    title: 'Tâche de test',
+                    conflicts: [
+                      { title: 'Tâche existante', startTime: '10:00', endTime: '11:00' }
+                    ]
+                  });
+                }}
+              >
+                <Text style={{color: 'white', fontSize: 12}}>⚠️ Tester Alerte Conflit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{backgroundColor: '#f59e0b', padding: 8, borderRadius: 6, marginBottom: 8, marginRight: 8}} 
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    Alert.alert('Test Web', 'Sur le web, les notifications programmées ne fonctionnent pas. Utilisez Expo Go sur mobile pour tester les vrais rappels !');
+                    return;
+                  }
+                  const futureDate = new Date(Date.now() + 30000);
+                  Notifications.scheduleNotificationAsync({
+                    content: {
+                      title: '🕐 Test Notification (30s)',
+                      body: 'Cette notification a été programmée pour dans 30 secondes !',
+                      sound: 'default',
+                    },
+                    trigger: {
+                      type: Notifications.SchedulableTriggerInputTypes.DATE,
+                      date: futureDate,
+                    },
+                  });
+                  Alert.alert('Test', 'Notification programmée pour dans 30 secondes !');
+                }}
+              >
+                <Text style={{color: 'white', fontSize: 12}}>⏰ Test Direct (30s)</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
