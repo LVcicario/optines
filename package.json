@@ -17,8 +17,9 @@
     "setup-working-hours": "node scripts/setup-working-hours-simple.js",
     "test-working-hours": "node scripts/test-working-hours-sync.js",
     "update-schema": "node scripts/update-schema.js",
-    "dev-panel": "echo 'Panel Développeur disponible à: qhttp://localhost:19006/developer' && npm run dev",
-    "test-api": "node -e \"fetch('http://localhost:3001/api/health').then(r=>r.json()).then(console.log).catch(e=>console.log('❌ API non disponible - Lancez: npm run server'))\"",
+    "dev-panel": "echo 'Panel Développeur disponible à: http://localhost:19006/developer' && npm run dev",
+    "test-api": "node scripts/test-api-connection.js",
+    "diagnose-network": "node scripts/diagnose-network-issue.js",
     "check-health": "node -e \"console.log('🔍 Vérification de l\\'API...'); fetch('http://localhost:3001/api/health').then(r=>r.json()).then(d=>console.log('✅ API fonctionnelle:', d.message)).catch(e=>console.log('❌ API non disponible sur http://localhost:3001'))\"",
     "stop-server": "taskkill /F /IM node.exe 2>nul || echo 'Aucun processus Node.js trouvé'",
     "restart": "npm run stop-server && npm run start",
@@ -35,7 +36,9 @@
     "auto-watcher-check": "node scripts/auto-release-watcher.js --check",
     "test-biometric": "node scripts/test-biometric-auth.js",
     "test-biometric-cleanup": "node scripts/test-biometric-auth.js --cleanup",
-    "test-biometric-create-data": "node scripts/test-biometric-auth.js --create-test-data"
+    "test-biometric-create-data": "node scripts/test-biometric-auth.js --create-test-data",
+    "cleanup-test-data": "node scripts/cleanup-test-data.js",
+    "test-bug-fixes": "node scripts/test-bug-fixes.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",
@@ -67,6 +70,7 @@
     "expo-status-bar": "~2.2.3",
     "expo-symbols": "~0.4.5",
     "expo-system-ui": "~5.0.10",
+    "expo-updates": "^29.0.12",
     "expo-web-browser": "~14.2.0",
     "express": "^4.21.2",
     "lucide-react-native": "^0.475.0",

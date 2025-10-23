@@ -1,6 +1,7 @@
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const cors = require('cors');
+require('dotenv').config(); // Charger les variables d'environnement
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -9,9 +10,19 @@ const PORT = process.env.PORT || 3001;
 app.use(express.json());
 app.use(cors());
 
-// Configuration Supabase avec la bonne URL et clé
-const SUPABASE_URL = 'https://vqwgnvrhcaosnjczuwth.supabase.co';
-const SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxd2dudnJoY2Fvc25qY3p1d3RoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTk4NzQyNCwiZXhwIjoyMDY3NTYzNDI0fQ.H_YkS5VWgYY2c9-F08b5gz_2ofJGclXyM00BXZzz9Mk';
+// Configuration Supabase - Utilisation des variables d'environnement
+// ⚠️ IMPORTANT : Ces clés doivent être dans le fichier .env
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://vqwgnvrhcaosnjczuwth.supabase.co';
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxd2dudnJoY2Fvc25qY3p1d3RoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTk4NzQyNCwiZXhwIjoyMDY3NTYzNDI0fQ.H_YkS5VWgYY2c9-F08b5gz_2ofJGclXyM00BXZzz9Mk';
+
+// Validation des clés au démarrage
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.warn('⚠️  ATTENTION: Variables d\'environnement manquantes!');
+  console.warn('   Créez un fichier .env avec:');
+  console.warn('   SUPABASE_URL=votre_url');
+  console.warn('   SUPABASE_SERVICE_ROLE_KEY=votre_service_role_key');
+  console.warn('   Utilisation des valeurs par défaut (NON RECOMMANDÉ EN PRODUCTION)');
+}
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -30,6 +41,34 @@ app.post('/api/users', async (req, res) => {
       return res.status(400).json({ 
         error: 'Les champs email, password, username, role, full_name et store_id sont requis' 
       });
+    }
+
+    // Validation du format email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Format d\'email invalide' });
+    }
+
+    // Vérifier que l'email n'existe pas déjà
+    const { data: existingUser, error: checkError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email)
+      .single();
+
+    if (existingUser) {
+      return res.status(400).json({ error: 'Un utilisateur avec cet email existe déjà' });
+    }
+
+    // Vérifier que le username n'existe pas déjà
+    const { data: existingUsername, error: usernameCheckError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('username', username)
+      .single();
+
+    if (existingUsername) {
+      return res.status(400).json({ error: 'Un utilisateur avec ce nom d\'utilisateur existe déjà' });
     }
 
     // Vérifier que le magasin existe
@@ -275,6 +314,13 @@ app.post('/api/users/:id/reset-password', async (req, res) => {
 });
 
 // Routes pour les magasins
+// Validation du numéro de téléphone
+const validatePhoneNumber = (phone) => {
+  // Format français : +33 1 23 45 67 89 ou 01 23 45 67 89
+  const phoneRegex = /^(\+33|0)[1-9](\d{8})$/;
+  return phoneRegex.test(phone.replace(/\s/g, ''));
+};
+
 // Créer un magasin
 app.post('/api/stores', async (req, res) => {
   try {
@@ -282,6 +328,11 @@ app.post('/api/stores', async (req, res) => {
 
     if (!name || !city) {
       return res.status(400).json({ error: 'Le nom et la ville sont requis' });
+    }
+
+    // Validation du numéro de téléphone si fourni
+    if (phone && !validatePhoneNumber(phone)) {
+      return res.status(400).json({ error: 'Format de numéro de téléphone invalide. Utilisez le format français (+33 ou 0)' });
     }
 
     const { data, error } = await supabase
@@ -332,33 +383,43 @@ app.put('/api/stores/:id', async (req, res) => {
     if (updates.is_active === false) {
       console.log(`🔴 Désactivation du magasin ${id} - Désactivation des employés...`);
       
-      // Désactiver tous les utilisateurs du magasin
-      const { error: usersError } = await supabase
-        .from('users')
-        .update({ is_active: false })
-        .eq('store_id', id);
+      try {
+        // Désactiver tous les utilisateurs du magasin
+        const { error: usersError } = await supabase
+          .from('users')
+          .update({ is_active: false })
+          .eq('store_id', id);
 
-      if (usersError) {
-        console.error('Erreur lors de la désactivation des utilisateurs:', usersError);
-        return res.status(400).json({ error: `Erreur lors de la désactivation des utilisateurs: ${usersError.message}` });
-      }
-
-      // Désactiver tous les employés (team_members) du magasin
-      const { error: employeesError } = await supabase
-        .from('team_members')
-        .update({ is_active: false })
-        .eq('store_id', id);
-
-      if (employeesError) {
-        console.error('Erreur lors de la désactivation des employés:', employeesError);
-        // Ne pas retourner d'erreur ici car la table team_members pourrait ne pas exister
-        // ou la colonne is_active pourrait ne pas exister encore
-        if (employeesError.message.includes('column "is_active" does not exist')) {
-          console.log('⚠️ Colonne is_active non trouvée dans team_members - ignorée');
+        if (usersError) {
+          console.error('Erreur lors de la désactivation des utilisateurs:', usersError);
+          return res.status(400).json({ error: `Erreur lors de la désactivation des utilisateurs: ${usersError.message}` });
         }
-      }
 
-      console.log(`✅ Tous les employés du magasin ${id} ont été désactivés`);
+        // Vérifier si la table team_members existe et a la colonne is_active
+        try {
+          const { error: employeesError } = await supabase
+            .from('team_members')
+            .update({ is_active: false })
+            .eq('store_id', id);
+
+          if (employeesError) {
+            if (employeesError.message.includes('column "is_active" does not exist')) {
+              console.log('⚠️ Colonne is_active non trouvée dans team_members - ignorée');
+            } else if (employeesError.message.includes('does not exist')) {
+              console.log('⚠️ Table team_members n\'existe pas - ignorée');
+            } else {
+              console.error('Erreur lors de la désactivation des employés:', employeesError);
+            }
+          }
+        } catch (tableError) {
+          console.log('⚠️ Table team_members non accessible - ignorée');
+        }
+
+        console.log(`✅ Tous les employés du magasin ${id} ont été désactivés`);
+      } catch (error) {
+        console.error('Erreur générale lors de la désactivation:', error);
+        return res.status(500).json({ error: 'Erreur lors de la désactivation du magasin' });
+      }
     }
 
     // Mettre à jour le magasin
@@ -656,9 +717,23 @@ app.post('/api/employees/:id/breaks', async (req, res) => {
       return res.status(400).json({ error: 'L\'employé spécifié n\'existe pas' });
     }
 
+    // Validation du format des horaires
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(start_time) || !timeRegex.test(end_time)) {
+      return res.status(400).json({ error: 'Format d\'heure invalide. Utilisez le format HH:MM' });
+    }
+
     // Vérifier que l'heure de fin est après l'heure de début
     if (start_time >= end_time) {
       return res.status(400).json({ error: 'L\'heure de fin doit être après l\'heure de début' });
+    }
+
+    // Vérifier que les horaires sont dans des plages raisonnables (6h-23h)
+    const startHour = parseInt(start_time.split(':')[0]);
+    const endHour = parseInt(end_time.split(':')[0]);
+    
+    if (startHour < 6 || startHour > 23 || endHour < 6 || endHour > 23) {
+      return res.status(400).json({ error: 'Les horaires doivent être entre 06:00 et 23:00' });
     }
 
     const { data, error } = await supabase

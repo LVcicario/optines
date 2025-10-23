@@ -29,8 +29,14 @@ yarn-error.*
 
 # local env files
 .env*.local
-# .env - Commenté pour permettre l'édition dans Cursor
-# .env
+.env
+.env.production
+.env.development
+.env.staging
+
+# Fichiers de configuration sensibles
+config/secrets.json
+secrets.json
 
 # typescript
 *.tsbuildinfo
