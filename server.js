@@ -1068,6 +1068,95 @@ app.post('/api/activity/alerts/:alertId/resolve', async (req, res) => {
   }
 });
 
+// Route API pour obtenir l'activité en direct de tous les employés
+app.get('/api/activity/live/:storeId', async (req, res) => {
+  try {
+    const { storeId } = req.params;
+
+    const { data, error } = await supabase
+      .from('employee_current_activity')
+      .select(`
+        employee_id,
+        status,
+        last_heartbeat,
+        last_activity,
+        current_task_id,
+        employees (
+          first_name,
+          last_name
+        ),
+        tasks (
+          title
+        )
+      `)
+      .eq('store_id', parseInt(storeId))
+      .order('last_heartbeat', { ascending: false });
+
+    if (error) throw error;
+
+    const activities = data.map(activity => ({
+      employee_id: activity.employee_id,
+      employee_name: `${activity.employees.first_name} ${activity.employees.last_name}`,
+      status: activity.status,
+      last_heartbeat: activity.last_heartbeat,
+      last_activity: activity.last_activity,
+      current_task: activity.tasks?.title,
+    }));
+
+    res.json({ success: true, activities });
+  } catch (error) {
+    console.error('Erreur live activity:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Route API pour enregistrer un heartbeat
+app.post('/api/activity/heartbeat', async (req, res) => {
+  try {
+    const { employee_id, store_id, timestamp, location, device_info } = req.body;
+
+    if (!employee_id || !store_id) {
+      return res.status(400).json({ error: 'employee_id et store_id sont requis' });
+    }
+
+    // Insérer le heartbeat dans la base de données
+    const { data, error } = await supabase
+      .from('employee_heartbeat')
+      .insert([{
+        employee_id,
+        store_id,
+        timestamp: timestamp || new Date().toISOString(),
+        location,
+        device_info
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    // Récupérer le statut actuel de l'employé
+    const { data: currentActivity, error: activityError } = await supabase
+      .from('employee_current_activity')
+      .select('*')
+      .eq('employee_id', employee_id)
+      .single();
+
+    const status = currentActivity ? currentActivity.status : 'active';
+
+    res.json({
+      success: true,
+      heartbeat: data,
+      status,
+      message: 'Heartbeat enregistré avec succès'
+    });
+  } catch (error) {
+    console.error('Erreur heartbeat:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Démarrage du serveur
 app.listen(PORT, () => {
   console.log(`🚀 Serveur API démarré sur http://localhost:${PORT}`);
@@ -1091,6 +1180,8 @@ app.listen(PORT, () => {
   console.log(`   PUT  /api/breaks/:breakId`);
   console.log(`   DELETE /api/breaks/:breakId`);
   console.log(`   GET  /api/breaks/date/:date`);
+  console.log(`   💓 POST /api/activity/heartbeat`);
+  console.log(`   📡 GET  /api/activity/live/:storeId`);
   console.log(`   📊 POST /api/activity/check (trigger manuel monitoring)`);
   console.log(`   📈 GET  /api/activity/stats/:storeId`);
   console.log(`   ✅  POST /api/activity/alerts/:alertId/resolve`);
