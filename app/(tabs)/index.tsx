@@ -19,7 +19,8 @@ import {
   Package,
   Clock,
   CheckCircle,
-  MessageCircle
+  MessageCircle,
+  Activity
 } from 'lucide-react-native';
 import FutureTasksCalendar from '../../components/FutureTasksCalendar';
 import { useTaskStats } from '../../hooks/useTaskStats';
@@ -194,6 +195,22 @@ export default function HomeTab() {
               <View style={styles.actionText}>
                 <Text style={[styles.actionTitle, isDark && styles.actionTitleDark]}>Assistant IA</Text>
                 <Text style={[styles.actionSubtitle, isDark && styles.actionSubtitleDark]}>Posez vos questions, gérez par chat</Text>
+              </View>
+            </View>
+            <ChevronRight color={isDark ? "#a1a1aa" : "#6b7280"} size={20} strokeWidth={2} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionCard, styles.actionCardActivity, isDark && styles.actionCardActivityDark]}
+            onPress={() => router.push('/activity-dashboard?storeId=1')}
+          >
+            <View style={styles.actionContent}>
+              <View style={[styles.actionIcon, styles.actionIconActivity]}>
+                <Activity color="#10b981" size={20} strokeWidth={2} />
+              </View>
+              <View style={styles.actionText}>
+                <Text style={[styles.actionTitle, isDark && styles.actionTitleDark]}>Activité en direct</Text>
+                <Text style={[styles.actionSubtitle, isDark && styles.actionSubtitleDark]}>Suivi temps réel des employés</Text>
               </View>
             </View>
             <ChevronRight color={isDark ? "#a1a1aa" : "#6b7280"} size={20} strokeWidth={2} />
@@ -433,5 +450,15 @@ const styles = StyleSheet.create({
   },
   actionIconAI: {
     backgroundColor: '#f3e8ff',
+  },
+  actionCardActivity: {
+    borderWidth: 2,
+    borderColor: '#10b981',
+  },
+  actionCardActivityDark: {
+    borderColor: '#059669',
+  },
+  actionIconActivity: {
+    backgroundColor: '#d1fae5',
   },
 });

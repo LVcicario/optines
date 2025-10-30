@@ -22,7 +22,11 @@ module.exports = ({ config }) => ({
     "**/*"
   ],
   ios: {
-    supportsTablet: true
+    supportsTablet: true,
+    infoPlist: {
+      NSLocationWhenInUseUsageDescription: "Optines a besoin d'accéder à votre position pour suivre l'activité des employés en temps réel.",
+      NSLocationAlwaysAndWhenInUseUsageDescription: "Optines a besoin d'accéder à votre position en arrière-plan pour le suivi continu de l'activité."
+    }
   },
   android: {
     package: "com.hagothem04444.optines",
@@ -30,7 +34,11 @@ module.exports = ({ config }) => ({
     adaptiveIcon: {
       foregroundImage: "./assets/icon.png",
       backgroundColor: "#ffffff"
-    }
+    },
+    permissions: [
+      "ACCESS_FINE_LOCATION",
+      "ACCESS_COARSE_LOCATION"
+    ]
   },
   web: {
     favicon: "./assets/favicon.png"

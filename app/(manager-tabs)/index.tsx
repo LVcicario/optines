@@ -19,6 +19,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useNotifications } from '../../hooks/useNotifications';
 import { useTaskRefresh } from '../../contexts/TaskRefreshContext';
 import { notificationService } from '../../services/NotificationService';
+import EmployeeActivityTracker from '../../components/EmployeeActivityTracker';
 
 const { width } = Dimensions.get('window');
 
@@ -306,6 +307,13 @@ export default function ManagerHomeTab() {
 
   return (
     <SafeAreaView style={[styles.container, isDark && styles.containerDark]}>
+      {/* Tracking d'activité en arrière-plan */}
+      <EmployeeActivityTracker
+        employeeId={managerId}
+        storeId={1}
+        autoStart={true}
+      />
+
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
