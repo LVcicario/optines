@@ -20,7 +20,8 @@ import {
   Clock,
   CheckCircle,
   MessageCircle,
-  Activity
+  Activity,
+  Layers
 } from 'lucide-react-native';
 import FutureTasksCalendar from '../../components/FutureTasksCalendar';
 import { useTaskStats } from '../../hooks/useTaskStats';
@@ -179,6 +180,22 @@ export default function HomeTab() {
               <View style={styles.actionText}>
                 <Text style={[styles.actionTitle, isDark && styles.actionTitleDark]}>Gérer l'équipe</Text>
                 <Text style={[styles.actionSubtitle, isDark && styles.actionSubtitleDark]}>Voir les performances</Text>
+              </View>
+            </View>
+            <ChevronRight color={isDark ? "#a1a1aa" : "#6b7280"} size={20} strokeWidth={2} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionCard, styles.actionCardSectors, isDark && styles.actionCardSectorsDark]}
+            onPress={() => router.push('/sectors-dashboard?storeId=1')}
+          >
+            <View style={styles.actionContent}>
+              <View style={[styles.actionIcon, styles.actionIconSectors]}>
+                <Layers color="#f59e0b" size={20} strokeWidth={2} />
+              </View>
+              <View style={styles.actionText}>
+                <Text style={[styles.actionTitle, isDark && styles.actionTitleDark]}>Vue par Secteur</Text>
+                <Text style={[styles.actionSubtitle, isDark && styles.actionSubtitleDark]}>Gestion globale des secteurs</Text>
               </View>
             </View>
             <ChevronRight color={isDark ? "#a1a1aa" : "#6b7280"} size={20} strokeWidth={2} />
@@ -450,6 +467,16 @@ const styles = StyleSheet.create({
   },
   actionIconAI: {
     backgroundColor: '#f3e8ff',
+  },
+  actionCardSectors: {
+    borderWidth: 2,
+    borderColor: '#f59e0b',
+  },
+  actionCardSectorsDark: {
+    borderColor: '#d97706',
+  },
+  actionIconSectors: {
+    backgroundColor: '#fef3c7',
   },
   actionCardActivity: {
     borderWidth: 2,
