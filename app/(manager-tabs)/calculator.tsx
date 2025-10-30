@@ -257,8 +257,8 @@ export default function JobCalculatorTab() {
     // Base time: 40 seconds per package
       const baseTimeSeconds = packageCount * 40;
     
-    // Palette condition penalty: 20 minutes if bad condition
-      const palettePenaltySeconds = paletteCondition ? 0 : 20 * 60;
+    // Palette condition penalty: 30 minutes if bad condition (client feedback Intermarché)
+      const palettePenaltySeconds = paletteCondition ? 0 : 30 * 60;
     
     // Team efficiency: each additional member saves 30 minutes (1800 seconds)
       const additionalMembers = teamMembers.length - 1;
@@ -1445,7 +1445,7 @@ export default function JobCalculatorTab() {
             </View>
             <View style={styles.switchContainer}>
               <Text style={[styles.switchLabel, !paletteCondition && styles.activeLabel, isDark && styles.textDark]}>
-                Mauvais état (+20 min)
+                Mauvais état (+30 min)
               </Text>
               <Switch
                 value={paletteCondition}

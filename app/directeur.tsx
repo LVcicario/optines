@@ -351,6 +351,43 @@ export default function DirecteurDashboard() {
       return;
     }
 
+    // ✅ NOUVEAU: Valider que l'heure de fin est postérieure à l'heure de début
+    const startTime = new Date(`2000-01-01T${taskStartTime}`);
+    const endTime = new Date(`2000-01-01T${taskEndTime}`);
+
+    if (endTime <= startTime) {
+      Alert.alert(
+        'Erreur de validation',
+        `L'heure de fin (${taskEndTime}) doit être postérieure à l'heure de début (${taskStartTime}).`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Vérifier que la durée est raisonnable (ex: max 12h)
+    const durationMs = endTime.getTime() - startTime.getTime();
+    const durationHours = durationMs / (1000 * 60 * 60);
+
+    if (durationHours > 12) {
+      Alert.alert(
+        'Durée excessive',
+        `Cette tâche dure ${durationHours.toFixed(1)}h. Les tâches de plus de 12h peuvent être difficiles à gérer. Êtes-vous sûr ?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Confirmer', onPress: () => {
+            // Continue avec la création
+            proceedWithTaskCreation();
+          }}
+        ]
+      );
+      return;
+    }
+
+    // Si toutes les validations passent, créer la tâche
+    await proceedWithTaskCreation();
+  };
+
+  const proceedWithTaskCreation = async () => {
     if (!createTask) {
       Alert.alert('Erreur', 'Fonction createTask non disponible');
       return;

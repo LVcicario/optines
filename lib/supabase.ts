@@ -1,9 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
-// Configuration Supabase - Clés réelles
-const supabaseUrl = 'https://vqwgnvrhcaosnjczuwth.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxd2dudnJoY2Fvc25qY3p1d3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE5ODc0MjQsImV4cCI6MjA2NzU2MzQyNH0.3R5XkNZGMLmLUI1A5iExLnhsIyiwIyz0Azu7eInQHq4';
+// Configuration Supabase - Utilisation des variables d'environnement
+const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl;
+const supabaseAnonKey = Constants.expoConfig?.extra?.supabaseAnonKey;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Les variables SUPABASE_URL et SUPABASE_ANON_KEY doivent être définies dans .env');
+}
 
 // Créer le client Supabase
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {

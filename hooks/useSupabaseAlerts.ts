@@ -41,10 +41,14 @@ export const useSupabaseAlerts = (filters?: AlertFilters) => {
         .from('alerts')
         .select('*')
         .order('created_at', { ascending: false });
+
       if (filters?.manager_id) query = query.eq('manager_id', filters.manager_id);
       if (filters?.severity) query = query.eq('severity', filters.severity);
       if (filters?.is_read !== undefined) query = query.eq('is_read', filters.is_read);
-      // store_id: nécessite une jointure côté backend ou une vue
+
+      // ✅ FIXED: Filtrer par store_id (nécessite migration SQL pour ajouter la colonne)
+      if (filters?.store_id) query = query.eq('store_id', filters.store_id);
+
       const { data, error } = await query;
       if (error) throw error;
       setAlerts(data || []);
@@ -60,14 +64,33 @@ export const useSupabaseAlerts = (filters?: AlertFilters) => {
     manager_id: string;
     message: string;
     severity?: 'info' | 'warning' | 'critical';
+    store_id?: number; // ✅ NOUVEAU: Support de store_id lors de la création
   }) => {
     try {
       setError(null);
+
+      // Si store_id n'est pas fourni, le récupérer depuis le manager
+      let finalAlertData = { ...alertData, severity: alertData.severity || 'warning' };
+
+      if (!finalAlertData.store_id) {
+        // Récupérer le store_id du manager
+        const { data: managerData, error: managerError } = await supabase
+          .from('users')
+          .select('store_id')
+          .eq('id', alertData.manager_id)
+          .single();
+
+        if (!managerError && managerData) {
+          finalAlertData.store_id = managerData.store_id;
+        }
+      }
+
       const { data, error } = await supabase
         .from('alerts')
-        .insert([{ ...alertData, severity: alertData.severity || 'warning' }])
+        .insert([finalAlertData])
         .select()
         .single();
+
       if (error) throw error;
       setAlerts(prev => [data, ...prev]);
       return { success: true, alert: data };

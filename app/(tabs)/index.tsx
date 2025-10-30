@@ -10,23 +10,26 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { 
-  TrendingUp, 
-  Users, 
-  Calendar, 
+import {
+  TrendingUp,
+  Users,
+  Calendar,
   Bell,
   ChevronRight,
   Package,
   Clock,
-  CheckCircle
+  CheckCircle,
+  MessageCircle
 } from 'lucide-react-native';
 import FutureTasksCalendar from '../../components/FutureTasksCalendar';
 import { useTaskStats } from '../../hooks/useTaskStats';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useRouter } from 'expo-router';
 
 export default function HomeTab() {
   const { stats, loading, refreshStats } = useTaskStats();
   const { isDark } = useTheme();
+  const router = useRouter();
 
   // Rafraîchir les stats quand la page devient active
   useEffect(() => {
@@ -175,6 +178,22 @@ export default function HomeTab() {
               <View style={styles.actionText}>
                 <Text style={[styles.actionTitle, isDark && styles.actionTitleDark]}>Gérer l'équipe</Text>
                 <Text style={[styles.actionSubtitle, isDark && styles.actionSubtitleDark]}>Voir les performances</Text>
+              </View>
+            </View>
+            <ChevronRight color={isDark ? "#a1a1aa" : "#6b7280"} size={20} strokeWidth={2} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionCard, styles.actionCardAI, isDark && styles.actionCardAIDark]}
+            onPress={() => router.push('/ai-assistant')}
+          >
+            <View style={styles.actionContent}>
+              <View style={[styles.actionIcon, styles.actionIconAI]}>
+                <MessageCircle color="#8b5cf6" size={20} strokeWidth={2} />
+              </View>
+              <View style={styles.actionText}>
+                <Text style={[styles.actionTitle, isDark && styles.actionTitleDark]}>Assistant IA</Text>
+                <Text style={[styles.actionSubtitle, isDark && styles.actionSubtitleDark]}>Posez vos questions, gérez par chat</Text>
               </View>
             </View>
             <ChevronRight color={isDark ? "#a1a1aa" : "#6b7280"} size={20} strokeWidth={2} />
@@ -404,5 +423,15 @@ const styles = StyleSheet.create({
   },
   actionSubtitleDark: {
     color: '#a1a1aa',
+  },
+  actionCardAI: {
+    borderWidth: 2,
+    borderColor: '#8b5cf6',
+  },
+  actionCardAIDark: {
+    borderColor: '#7c3aed',
+  },
+  actionIconAI: {
+    backgroundColor: '#f3e8ff',
   },
 });

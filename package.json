@@ -41,6 +41,7 @@
     "test-bug-fixes": "node scripts/test-bug-fixes.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
     "@expo/vector-icons": "^14.1.0",
     "@lucide/lab": "^0.1.2",
     "@react-native-async-storage/async-storage": "2.1.2",
@@ -74,6 +75,7 @@
     "expo-web-browser": "~14.2.0",
     "express": "^4.21.2",
     "lucide-react-native": "^0.475.0",
+    "node-cron": "^4.2.1",
     "node-fetch": "^3.3.2",
     "postgres": "^3.4.7",
     "react": "19.0.0",

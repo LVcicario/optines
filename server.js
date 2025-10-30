@@ -1,7 +1,14 @@
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const cors = require('cors');
+const cron = require('node-cron');
 require('dotenv').config(); // Charger les variables d'environnement
+
+// Import du service de monitoring d'activité
+const { activityMonitor } = require('./services/activity-monitor');
+
+// Import du service AI Assistant
+const { aiAssistant } = require('./services/ai-assistant');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -12,16 +19,17 @@ app.use(cors());
 
 // Configuration Supabase - Utilisation des variables d'environnement
 // ⚠️ IMPORTANT : Ces clés doivent être dans le fichier .env
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://vqwgnvrhcaosnjczuwth.supabase.co';
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxd2dudnJoY2Fvc25qY3p1d3RoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTk4NzQyNCwiZXhwIjoyMDY3NTYzNDI0fQ.H_YkS5VWgYY2c9-F08b5gz_2ofJGclXyM00BXZzz9Mk';
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // Validation des clés au démarrage
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  console.warn('⚠️  ATTENTION: Variables d\'environnement manquantes!');
-  console.warn('   Créez un fichier .env avec:');
-  console.warn('   SUPABASE_URL=votre_url');
-  console.warn('   SUPABASE_SERVICE_ROLE_KEY=votre_service_role_key');
-  console.warn('   Utilisation des valeurs par défaut (NON RECOMMANDÉ EN PRODUCTION)');
+if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  console.error('❌ ERREUR FATALE: Variables d\'environnement manquantes!');
+  console.error('   Créez un fichier .env avec:');
+  console.error('   SUPABASE_URL=votre_url');
+  console.error('   SUPABASE_SERVICE_ROLE_KEY=votre_service_role_key');
+  console.error('   Le serveur ne peut pas démarrer sans ces variables.');
+  process.exit(1);
 }
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -923,6 +931,143 @@ app.get('/api/breaks/date/:date', async (req, res) => {
   }
 });
 
+// =====================================================
+// ROUTES API: AI ASSISTANT (CHAT CONVERSATIONNEL)
+// =====================================================
+
+// Chat avec l'assistant IA
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    const { message, user_id, store_id } = req.body;
+
+    if (!message || !user_id || !store_id) {
+      return res.status(400).json({
+        error: 'Les champs message, user_id et store_id sont requis'
+      });
+    }
+
+    const response = await aiAssistant.chat(message, user_id, store_id);
+
+    res.json({
+      success: true,
+      response: response.message,
+      actions: response.actions || [],
+      timestamp: response.timestamp
+    });
+
+  } catch (error) {
+    console.error('Erreur AI chat:', error);
+    res.status(500).json({
+      error: error.message || 'Erreur lors du traitement du message'
+    });
+  }
+});
+
+// Effacer l'historique de conversation
+app.delete('/api/ai/history/:userId/:storeId', async (req, res) => {
+  try {
+    const { userId, storeId } = req.params;
+
+    aiAssistant.clearHistory(parseInt(storeId), userId);
+
+    res.json({
+      success: true,
+      message: 'Historique de conversation effacé'
+    });
+
+  } catch (error) {
+    console.error('Erreur effacement historique:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Suggestions de commandes (pour l'interface)
+app.get('/api/ai/suggestions', (req, res) => {
+  res.json({
+    success: true,
+    suggestions: [
+      {
+        category: 'Tâches',
+        commands: [
+          'Crée une tâche pour demain matin',
+          'Quelles sont les tâches du jour ?',
+          'Montre-moi les tâches en cours'
+        ]
+      },
+      {
+        category: 'Équipe',
+        commands: [
+          'Comment va l\'équipe aujourd\'hui ?',
+          'Qui est disponible cet après-midi ?',
+          'Montre-moi les stats de MLKH'
+        ]
+      },
+      {
+        category: 'Organisation',
+        commands: [
+          'Organise ma semaine',
+          'Aide-moi à planifier demain',
+          'Quels sont les points à surveiller ?'
+        ]
+      }
+    ]
+  });
+});
+
+// =====================================================
+// CRON JOB: MONITORING D'ACTIVITÉ EN TEMPS RÉEL
+// =====================================================
+
+// Exécuter le monitoring toutes les 5 minutes
+// Détecte les employés inactifs et génère des alertes automatiques
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    await activityMonitor.checkAllActivity();
+  } catch (error) {
+    console.error('[CRON] Erreur monitoring activité:', error);
+  }
+});
+
+console.log('⏰ Cron job de monitoring d\'activité configuré (toutes les 5 minutes)');
+
+// Route API pour déclencher manuellement le monitoring (utile pour les tests)
+app.post('/api/activity/check', async (req, res) => {
+  try {
+    await activityMonitor.checkAllActivity();
+    res.json({ success: true, message: 'Vérification d\'activité terminée' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Route API pour obtenir les stats de productivité
+app.get('/api/activity/stats/:storeId', async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const stats = await activityMonitor.getProductivityStats(parseInt(storeId));
+    res.json({ success: true, stats });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Route API pour résoudre une alerte
+app.post('/api/activity/alerts/:alertId/resolve', async (req, res) => {
+  try {
+    const { alertId } = req.params;
+    const { resolved_by, note } = req.body;
+
+    if (!resolved_by) {
+      return res.status(400).json({ error: 'resolved_by est requis' });
+    }
+
+    await activityMonitor.resolveAlert(alertId, resolved_by, note);
+    res.json({ success: true, message: 'Alerte résolue avec succès' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Démarrage du serveur
 app.listen(PORT, () => {
   console.log(`🚀 Serveur API démarré sur http://localhost:${PORT}`);
@@ -946,6 +1091,12 @@ app.listen(PORT, () => {
   console.log(`   PUT  /api/breaks/:breakId`);
   console.log(`   DELETE /api/breaks/:breakId`);
   console.log(`   GET  /api/breaks/date/:date`);
+  console.log(`   📊 POST /api/activity/check (trigger manuel monitoring)`);
+  console.log(`   📈 GET  /api/activity/stats/:storeId`);
+  console.log(`   ✅  POST /api/activity/alerts/:alertId/resolve`);
+  console.log(`   🤖 POST /api/ai/chat (assistant IA conversationnel)`);
+  console.log(`   🗑️  DELETE /api/ai/history/:userId/:storeId`);
+  console.log(`   💡 GET  /api/ai/suggestions`);
 });
 
 module.exports = app; 

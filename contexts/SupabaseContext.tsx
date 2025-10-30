@@ -2,10 +2,16 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { User, Session } from '@supabase/supabase-js';
 
+interface UserStore {
+  store_id: number;
+  store_name?: string;
+}
+
 interface SupabaseContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  userStore: UserStore | null;
   signOut: () => Promise<void>;
 }
 
@@ -15,6 +21,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [userStore, setUserStore] = useState<UserStore | null>(null);
 
   useEffect(() => {
     // Récupérer la session initiale
@@ -47,18 +54,38 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       supabase.auth.getUser().then(({ data, error }) => {
         if (data?.user) {
           setUser(data.user);
-          console.log('[SUPABASE] User rechargé via getUser:', data.user);
         }
         if (error) {
-          console.warn('[SUPABASE] Erreur getUser:', error.message);
+          console.error('[SUPABASE] Erreur getUser:', error.message);
         }
       });
     }
   }, [session, user]);
 
+  // Récupérer le store_id de l'utilisateur
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from('users')
+        .select('store_id')
+        .eq('id', user.id)
+        .single()
+        .then(({ data, error }) => {
+          if (data && !error) {
+            setUserStore({ store_id: data.store_id });
+          } else if (error) {
+            console.error('[SUPABASE] Erreur récupération store_id:', error.message);
+          }
+        });
+    } else {
+      setUserStore(null);
+    }
+  }, [user]);
+
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
+      setUserStore(null);
     } catch (error) {
       console.error('Erreur lors de la déconnexion:', error);
     }
@@ -68,6 +95,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     user,
     session,
     loading,
+    userStore,
     signOut,
   };
 

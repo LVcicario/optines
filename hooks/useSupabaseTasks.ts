@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useSupabaseWorkingHours } from './useSupabaseWorkingHours';
 import { useTaskRefresh } from '../contexts/TaskRefreshContext';
+import { useSupabase } from '../contexts/SupabaseContext';
 
 interface Task {
   id: string;
@@ -52,17 +53,19 @@ export const useSupabaseTasks = (filters: TaskFilters = {}) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
+  // Récupérer le store_id depuis le contexte
+  const { userStore } = useSupabase();
+
   // Hook pour les horaires de travail
-  const { isTimeRangeWithinWorkingHours, workingHours } = useSupabaseWorkingHours({ 
-    store_id: filters.store_id || 1 
+  const { isTimeRangeWithinWorkingHours, workingHours } = useSupabaseWorkingHours({
+    store_id: filters.store_id || userStore?.store_id || 1
   });
 
   // Hook pour le rafraîchissement global
   const { refreshTrigger } = useTaskRefresh();
 
   useEffect(() => {
-    console.log('🔄 [HOOK] useEffect déclenché - filtres changés:', filters);
     loadTasks();
   }, [filters.managerId, filters.date, filters.isCompleted, filters.isPinned]);
 
@@ -78,23 +81,19 @@ export const useSupabaseTasks = (filters: TaskFilters = {}) => {
     try {
       setIsLoading(true);
       setError(null);
-      
-      console.log('🔄 [HOOK] Chargement des tâches avec filtres:', filters);
-      
+
       let query = supabase
         .from('scheduled_tasks')
         .select('*')
-        // .eq('is_deleted', false) // Temporairement commenté car la colonne n'existe pas
+        .eq('is_deleted', false)
         .order('created_at', { ascending: false });
 
       if (filters.managerId) {
         query = query.eq('manager_id', filters.managerId);
-        console.log('🔄 [HOOK] Filtre manager_id ajouté:', filters.managerId);
       }
-      
+
       if (filters.date) {
         query = query.eq('date', filters.date);
-        console.log('🔄 [HOOK] Filtre date ajouté:', filters.date);
       }
       
       if (filters.isCompleted !== undefined) {
@@ -106,16 +105,9 @@ export const useSupabaseTasks = (filters: TaskFilters = {}) => {
       }
 
       const { data, error } = await query;
-      
-      console.log('🔄 [HOOK] Résultat de la requête:', { 
-        data: data?.length || 0, 
-        error,
-        taskIds: data?.map(t => t.id) || []
-      });
 
       if (error) throw error;
-      
-      console.log('🔄 [HOOK] Mise à jour de l\'état avec', data?.length || 0, 'tâches');
+
       setTasks(data || []);
     } catch (err) {
       console.error('Erreur lors du chargement des tâches:', err);
@@ -132,15 +124,14 @@ export const useSupabaseTasks = (filters: TaskFilters = {}) => {
       // Validation des horaires de travail
       if (workingHours && !isTimeRangeWithinWorkingHours(taskData.start_time, taskData.end_time)) {
         const errorMessage = `❌ Impossible de créer la tâche : les horaires (${taskData.start_time} - ${taskData.end_time}) sont en dehors des horaires de travail du magasin (${workingHours.start_time} - ${workingHours.end_time})`;
-        console.error(errorMessage);
         setError(errorMessage);
         return { success: false, error: errorMessage };
       }
-      
+
       // Ajouter automatiquement le store_id si pas présent
       const taskDataWithStore = {
         ...taskData,
-        store_id: taskData.store_id || 1 // Par défaut, magasin 1
+        store_id: taskData.store_id || userStore?.store_id || 1
       };
       
       const { data, error } = await supabase
@@ -150,17 +141,11 @@ export const useSupabaseTasks = (filters: TaskFilters = {}) => {
         .single();
 
       if (error) {
-        console.error('❌ Erreur Supabase:', error.message);
         throw error;
       }
-      
+
       setTasks(prev => [data, ...prev]);
-      
-      // Forcer le rechargement des tâches pour s'assurer que tout est synchronisé
-      setTimeout(() => {
-        loadTasks();
-      }, 500);
-      
+
       return { success: true, task: data };
     } catch (err) {
       console.error('Erreur création tâche:', err);

@@ -111,3 +111,9 @@ buck-out/
 
 # Yarn
 yarn.lock
+
+# Logs et fichiers temporaires
+logs/*.log
+logs/*.json
+logs/*.txt
+deployment/.auto-release-pid

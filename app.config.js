@@ -37,9 +37,8 @@ module.exports = ({ config }) => ({
   },
   extra: {
     // Utilisation des variables d'environnement pour la sécurité
-    // En développement : valeurs par défaut si .env n'existe pas
-    supabaseUrl: process.env.SUPABASE_URL || "https://vqwgnvrhcaosnjczuwth.supabase.co",
-    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxd2dudnJoY2Fvc25qY3p1d3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE5ODc0MjQsImV4cCI6MjA2NzU2MzQyNH0.3R5XkNZGMLmLUI1A5iExLnhsIyiwIyz0Azu7eInQHq4",
+    supabaseUrl: process.env.SUPABASE_URL,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
     eas: {
       projectId: "f13cb17b-04ab-4c0b-8b00-2541ed1a7b8d"
     }

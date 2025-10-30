@@ -17,6 +17,7 @@ interface SmartReminder {
 export class NotificationService {
   private static instance: NotificationService;
   private notificationHook: ReturnType<typeof useNotifications> | null = null;
+  private overdueCheckInterval: NodeJS.Timeout | null = null;
 
   private constructor() {}
 
@@ -545,11 +546,19 @@ export class NotificationService {
   async initialize() {
     await this.cleanupOldNotifications();
     await this.scheduleRemindersForExistingTasks();
-    
+
     // Vérifier les tâches en retard toutes les 5 minutes
-    setInterval(() => {
+    this.overdueCheckInterval = setInterval(() => {
       this.checkOverdueTasks();
     }, 5 * 60 * 1000);
+  }
+
+  // Nettoyer les intervalles (à appeler lors de la fermeture de l'app)
+  cleanup() {
+    if (this.overdueCheckInterval) {
+      clearInterval(this.overdueCheckInterval);
+      this.overdueCheckInterval = null;
+    }
   }
 }
 
