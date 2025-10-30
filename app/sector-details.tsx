@@ -17,6 +17,7 @@ import {
   CheckCircle,
   AlertCircle,
   ChevronRight,
+  Package,
 } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { useSectorEmployees } from '../hooks/useSupabaseSectors';
@@ -56,6 +57,12 @@ export default function SectorDetails() {
             {employees.length} employé{employees.length > 1 ? 's' : ''}
           </Text>
         </View>
+        <TouchableOpacity
+          style={styles.assignButton}
+          onPress={() => router.push(`/assign-packages?sectorId=${sectorId}&sectorName=${sectorName}`)}
+        >
+          <Package color="#ffffff" size={20} strokeWidth={2} />
+        </TouchableOpacity>
       </View>
 
       {/* Content */}
@@ -252,6 +259,22 @@ const styles = StyleSheet.create({
   backButton: {
     padding: 8,
     marginRight: 12,
+  },
+  assignButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#3b82f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#3b82f6',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   headerTitleContainer: {
     flex: 1,
